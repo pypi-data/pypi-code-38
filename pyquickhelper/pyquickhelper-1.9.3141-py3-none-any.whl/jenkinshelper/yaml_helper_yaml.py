@@ -1,0 +1,22 @@
+"""
+@file
+@brief Puts everything related to package :epkg:`yaml` in a separate files.
+"""
+import yaml
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    Loader = None
+
+
+def yaml_load(content):
+    """
+    Parses a :epkg:`yml` file with :epkg:`yaml`.
+
+    @param      content     string
+    @return                 structured data
+    """
+    if Loader is None:
+        return yaml.load(content)
+    else:
+        return yaml.load(content, Loader=Loader)
