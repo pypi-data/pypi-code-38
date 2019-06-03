@@ -1,0 +1,8 @@
+CREATE_TABLE_WITH_NOT_NULL_COLUMN = "app_create_table_with_not_null_column"
+ADD_NOT_NULL_COLUMN = "app_add_not_null_column"
+DROP_COLUMN = "app_drop_column"
+RENAME_COLUMN = "app_rename_column"
+RENAME_TABLE = "app_rename_table"
+IGNORE_MIGRATION = "app_ignore_migration"
+ADD_NOT_NULL_COLUMN_FOLLOWED_BY_DEFAULT = "app_add_not_null_column_followed_by_default"
+ALTER_COLUMN = "app_alter_column"
