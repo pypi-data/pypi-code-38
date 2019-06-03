@@ -1,0 +1,4 @@
+
+
+class RateError(BaseException):
+    pass
