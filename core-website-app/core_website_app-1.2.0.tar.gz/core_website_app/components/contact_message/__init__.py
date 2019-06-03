@@ -1,0 +1,2 @@
+""" Contact messages object
+"""
