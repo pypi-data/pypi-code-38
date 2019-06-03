@@ -1,0 +1,2 @@
+ACTIVE = "Active"
+DELETED = "Deleted"
