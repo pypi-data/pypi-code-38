@@ -1,0 +1,61 @@
+# AUTO GENERATED FILE - DO NOT EDIT
+
+from dash.development.base_component import Component, _explicitize_args
+
+
+class Dash_react_table(Component):
+    """A Dash_react_table component.
+DashReactTable is a decalaritive version of react-table, built for dash.
+
+At a minimum, it must have `data` and `column` properties.
+`data` must be a uniform list of dicts with the arbitrary amount of keys representing the 
+columns and values representing that row's data. This can be done very easily 
+in pandas using df.to_json(orient='records'). As for `columns`, this is also a list
+of dictionaries, but it has a defined set of properties. At the very least, it must contain 
+`Header` and `accessor` properties, referring to the column's title and identifying key in 
+the data property, respectively. Columns also have many other properties that are referenced 
+both in the docstring as well as in the react-table docs.
+
+Keyword arguments:
+- id (string; optional): The ID used to identify this component in Dash callbacks
+- data (list; optional): An array of dictionaries with each dictionary corresponding 
+to a row. The keys will refere to columns while the values refer
+to the data that will be placed in that row's cell.
+- columns (list; optional): An aray of dictionaries containing properties to each column. 
+At the very least, every column must have a "Header" and "accessor" 
+property. The "Header" will be the title of the column and the "accessor"
+will link that column to the data array of dictionaries.
+- showPagination (boolean; optional): Turn on pagination. Seting this to true will improve performance
+on larger tables.
+- showPaginationTop (boolean; optional): Show pagination controls on top of table (default: false)
+- showPaginationBottom (boolean; optional): Show pagination controls on bottom of table (default: true)
+- showPageSizeOptions (boolean; optional): Show options dropdown to edit results per page when pagination is enabled.
+- pageSizeOptions (list; optional): Options for show page size when pageination is enabled. (default: [5, 10, 20, 25, 50, 100])
+- defaultPageSize (number; optional): Default page size. (default: 20)
+- minRows (number; optional): controls the minimum number of rows to display - default will be "pageSize"
+NOTE: if you set minRows to 0 then you get rid of empty padding rows BUT your table formatting will also 
+look strange when there are ZERO rows in the table.
+- sortable (boolean; optional): Table level sorting (default: true). This can be overided for specific columns.
+- resizable (boolean; optional): Table level resizing (default: true). This can be overided for specific columns.
+- filterable (boolean; optional): Table level filtering (default: false). This can be overided for specific columns.
+- className (string; optional): Add classname "-striped" and/or "-highlight" to enable these features.
+- style (dict; optional): Inline table styles"""
+    @_explicitize_args
+    def __init__(self, id=Component.UNDEFINED, data=Component.UNDEFINED, columns=Component.UNDEFINED, showPagination=Component.UNDEFINED, showPaginationTop=Component.UNDEFINED, showPaginationBottom=Component.UNDEFINED, showPageSizeOptions=Component.UNDEFINED, pageSizeOptions=Component.UNDEFINED, defaultPageSize=Component.UNDEFINED, minRows=Component.UNDEFINED, sortable=Component.UNDEFINED, resizable=Component.UNDEFINED, filterable=Component.UNDEFINED, className=Component.UNDEFINED, style=Component.UNDEFINED, **kwargs):
+        self._prop_names = ['id', 'data', 'columns', 'showPagination', 'showPaginationTop', 'showPaginationBottom', 'showPageSizeOptions', 'pageSizeOptions', 'defaultPageSize', 'minRows', 'sortable', 'resizable', 'filterable', 'className', 'style']
+        self._type = 'Dash_react_table'
+        self._namespace = 'reacttable'
+        self._valid_wildcard_attributes =            []
+        self.available_properties = ['id', 'data', 'columns', 'showPagination', 'showPaginationTop', 'showPaginationBottom', 'showPageSizeOptions', 'pageSizeOptions', 'defaultPageSize', 'minRows', 'sortable', 'resizable', 'filterable', 'className', 'style']
+        self.available_wildcard_properties =            []
+
+        _explicit_args = kwargs.pop('_explicit_args')
+        _locals = locals()
+        _locals.update(kwargs)  # For wildcard attrs
+        args = {k: _locals[k] for k in _explicit_args if k != 'children'}
+
+        for k in []:
+            if k not in args:
+                raise TypeError(
+                    'Required argument `' + k + '` was not specified.')
+        super(Dash_react_table, self).__init__(**args)
