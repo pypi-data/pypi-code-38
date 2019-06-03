@@ -1,0 +1,356 @@
+from __future__ import division
+import hashlib
+import os
+
+import django
+import random
+
+from django.conf import settings
+from django.core.urlresolvers import reverse
+from django.core.validators import EMPTY_VALUES
+from django.db import models
+from django.template.defaultfilters import slugify
+from django.utils.translation import ugettext_lazy as _
+from django.utils.timezone import now
+
+from votebase.core.surveys.managers import RoundQuerySet, BrandingImageQuerySet
+from votebase.core.surveys.querysets import SurveyQuerySet
+
+
+class Survey(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name=_(u'user'))
+    title = models.CharField(_(u'title'), max_length=150)
+    hash_key = models.CharField(_(u'hash key'), max_length=255, db_index=True,
+        default=None, blank=True, null=True)
+    preface = models.TextField(
+        _(u'preface'), blank=True, null=True,
+        default=_(u'Your opinion means a lot to us. Thank you for it.'))
+    postface = models.TextField(
+        _(u'postface'), blank=True, null=True,
+        default=_(u'Thank you for participating in the survey.'))
+    css = models.TextField(
+        _(u'CSS'), blank=True, null=True, default=None)
+    is_visible = models.BooleanField(_(u'visibility'), default=False)
+    created = models.DateTimeField(_(u'created'), default=now)
+    modified = models.DateTimeField(_(u'modified'))
+    objects = SurveyQuerySet.as_manager()
+
+    class Meta:
+        app_label = 'surveys'
+        db_table = 'votebase_surveys'
+        verbose_name = _(u'survey')
+        verbose_name_plural = _(u'surveys')
+        ordering = ('-created', )
+
+    def __unicode__(self):
+        return self.title
+
+    def is_quiz(self):
+        return self.question_set.filter(is_quiz=True).exists()
+
+    def save(self, **kwargs):
+        self.modified = now()
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+        super(Survey, self).save(**kwargs)
+
+    def generate_unique_hash(self):
+        while True:
+            salt = hashlib.sha1(str(random.random())).hexdigest()[:5]
+            hash_key = hashlib.sha1(salt + str(self.pk)).hexdigest()
+            if not Survey.objects.filter(hash_key=hash_key).count():
+                break
+        return hash_key
+
+    @models.permalink
+    def get_absolute_statistics_url(self):
+        """ public URL for segment statistics """
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+            self.save()
+        return 'statistics_graphs_hash_survey', (str(self.hash_key), )
+
+    @models.permalink
+    def get_absolute_infographics_url(self):
+        """ public URL for segment statistics """
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+            self.save()
+        return 'statistics_infographics_hash_survey', (str(self.hash_key), )
+
+    def get_absolute_url(self):
+        return reverse('surveys_index')
+
+    def get_last_round(self):
+        return Round.objects.get_last_round(self)
+
+    def get_voter_set(self):
+        from votebase.core.voting.models import Voter
+        return Voter.objects.by_survey(self)
+
+    def get_new_voters_count(self, compare_date):
+        return self.voter_set.filter(
+            created__gte=compare_date).count()
+
+    @property
+    # @cached_property
+    def categories(self):
+        return list(set(self.question_set.order_by('weight').values_list('category', flat=True)))
+
+    def has_categories(self):
+        return len(self.categories) > 0 and self.categories[0] not in EMPTY_VALUES
+
+
+class Round(models.Model):
+    MAX_DURATION = 60 * 12
+
+    PERMISSION_LEVEL_PUBLIC = 'PUBLIC'
+    PERMISSION_LEVEL_REGISTERED = 'REGISTERED'
+    PERMISSION_LEVEL_PRIVATE = 'PRIVATE'
+
+    PERMISSION_LEVELS = (
+        (PERMISSION_LEVEL_PUBLIC, _(u'Public - for everyone')),
+        (PERMISSION_LEVEL_REGISTERED, _(u'Registered users only')),
+#        (PERMISSION_LEVEL_PRIVATE, _(u'Private - invites only')),
+    )
+    
+    STATISTICS_POLICY_PUBLIC = 'PUBLIC'
+    STATISTICS_POLICY_SECRET = 'SECRET'
+    STATISTICS_POLICY_PRIVATE = 'PRIVATE'
+
+    STATISTICS_POLICIES = (
+        (STATISTICS_POLICY_PUBLIC, _(u'Public - for everyone')),
+        (STATISTICS_POLICY_SECRET, _(u'Secret - for voters only')),
+        (STATISTICS_POLICY_PRIVATE, _(u'Private - for creator only')),
+    )
+
+    survey = models.ForeignKey(Survey, verbose_name=_(u'survey'))
+    ancestor = models.ForeignKey('self', verbose_name=_(u'ancestor'),
+        blank=True, null=True, default=None, on_delete=models.SET_NULL)
+    title = models.CharField(
+        _(u'title'), blank=False, null=False, default=_(u'Default segment'),
+        max_length=70)
+    slug = models.SlugField(_(u'URL alias'), blank=True, null=True, default=None, db_index=True, max_length=80,
+        help_text=_(u'Slug used to customize sharing URL. For example my-segment. '
+                    u'Keep blank to be autogenerated by segment title.')
+    )
+    hash_key = models.CharField(
+        _(u'hash key'), max_length=255, default=None, blank=True, null=True)
+    duration = models.PositiveIntegerField(
+        _(u'voting duration'), blank=True, null=True, default=0,
+        help_text=_(u'Set the voting duration in minutes or keep the default \
+        value (0) for infinite.'))
+    date_from = models.DateTimeField(_(u'valid from'), db_index=True,
+        blank=True, null=True, default=now,
+        help_text=_(u'Users can start voting beginning this date.'))
+    date_to = models.DateTimeField(_(u'valid to'), db_index=True,
+        blank=True, null=True, default=None,
+        help_text=_(u'Users will be able to vote until this date. '
+                    u'Keep blank to unlimited.'))
+    password = models.CharField(
+        _(u'password'), null=True, blank=True, default=None, max_length=255)
+    permission_level = models.CharField(
+        _(u'permission level'), choices=PERMISSION_LEVELS, max_length=255,
+        default=PERMISSION_LEVEL_PUBLIC)
+    statistics_policy = models.CharField(
+        _(u'statistics policy'), choices=STATISTICS_POLICIES, max_length=255,
+        default=STATISTICS_POLICY_PRIVATE)
+    count_questions = models.PositiveIntegerField(
+        _(u'count of questions'), default=None, blank=True, null=True,
+        help_text=_(u'Number of questions served to voter. '
+                    u'Keep blank to serve all questions.')
+    )
+    finish_url = models.URLField(
+        _(u'Finish URL'), blank=True, null=True, default=None, max_length=255,
+        help_text=_(u'Fill in if you want to show custom finish URL to voter after voting.')
+    )
+    finish_url_title = models.CharField(
+        _(u'Finish URL title'), blank=True, null=True, default=None,
+        max_length=255)
+    #TODO: rename column email_treshold into email_threshold (and refactor whole code)
+    email_treshold = models.PositiveIntegerField(
+        _(u'Email threshold'), blank=True, null=True, default=1,
+        help_text=_(u'Determine when do you want to receive email about new voters.'))
+    is_active = models.BooleanField(_(u'active'), default=True, db_index=True,
+        help_text=_(u'Current segment status. '
+                    u'Users will not be able to start voting if inactive.')
+    )
+    is_anonymous = models.BooleanField(_(u'anonymous'), default=False, db_index=True,
+        help_text=_(u'Set checked if you \
+        don\'t want to public the names of responders in the statistics.'))
+    is_repeatable = models.BooleanField(_(u'repeatable voting'), default=False, db_index=True,
+        help_text=_(u'Set checked if \
+        users can vote multiple times in survey.'))
+    is_quiz_result_visible = models.BooleanField(_(u'show quiz results'), default=False, db_index=True,
+        help_text=_(u'Set checked \
+        if you want to show quiz results in percentage to voters.'))
+    is_quiz_correct_options_visible = models.BooleanField(_(u'show quiz correct options'), default=False, db_index=True,
+        help_text=_(u'Set checked \
+        if you want to show correct options to voters.'))
+    is_viewable = models.BooleanField(
+        _(u'view survey'), default=True, help_text=_(u'Set checked if \
+        users can see survey questions without voting.'))
+    is_shuffle = models.BooleanField(_(u'Shuffle'), default=False)
+    created = models.DateTimeField(_(u'created'), default=now)
+    modified = models.DateTimeField(_(u'modified'))
+    objects = RoundQuerySet.as_manager()
+
+    class Meta:
+        app_label = 'surveys'
+        db_table = 'votebase_rounds'
+        verbose_name = _(u'segment')
+        verbose_name_plural = _(u'segments')
+        ordering = ('-created', )
+
+    def __unicode__(self):
+        return self.title
+
+    def save(self, **kwargs):
+        self.modified = now()
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+        super(Round, self).save(**kwargs)
+
+    def generate_unique_hash(self):
+        while True:
+            salt = hashlib.sha1(str(random.random())).hexdigest()[:5]
+            hash_key = hashlib.sha1(salt + str(self.pk)).hexdigest()
+            if not Round.objects.filter(hash_key=hash_key).count():
+                break
+        return hash_key
+
+    @models.permalink
+    def get_absolute_statistics_url(self):
+        """ public URL for segment statistics """
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+            self.save()
+        return 'statistics_graphs_hash_round', (str(self.hash_key), )
+
+    @models.permalink
+    def get_absolute_infographics_url(self):
+        """ public URL for segment statistics """
+        if self.hash_key in EMPTY_VALUES:
+            self.hash_key = self.generate_unique_hash()
+            self.save()
+        return 'statistics_infographics_hash_round', (str(self.hash_key), )
+
+    def get_random_questions(self):
+        from votebase.core.questions.models import Question
+
+        survey_questions = self.survey.question_set.all().prefetch_related('option_set')
+
+        if self.count_questions is None:
+            return survey_questions
+
+        questions_pks = []
+        quiz_questions = survey_questions.filter(is_quiz=True)
+
+        if quiz_questions.count() > 0:
+            random_quiz_pos = random.randint(0, quiz_questions.count() - 1)
+            questions_pks.append(quiz_questions[random_quiz_pos].pk)
+
+        while len(questions_pks) < self.count_questions:
+            random_pos = random.randint(0, survey_questions.count() - 1)
+            random_question = survey_questions[random_pos]
+
+            if random_question.pk not in questions_pks:
+                questions_pks.append(random_question.pk)
+
+        return Question.objects.filter(pk__in=questions_pks)
+
+    def get_voting_url(self):
+        return '/%d/' % self.pk
+
+    def get_voting_url_survey(self):
+        return '/%d/%s/' % (self.pk, slugify(self.survey.title))
+
+    def get_voting_url_survey_round(self):
+        if self.slug in EMPTY_VALUES:
+            return '/%d/%s/%s/' % (
+                self.pk, slugify(self.survey.title), slugify(self.title))
+        else:
+            return '/%d/%s/%s/' % (
+                self.pk, slugify(self.survey.title), self.slug)
+
+    def get_voting_url_profile_survey(self):
+        if self.slug in EMPTY_VALUES:
+            return '/%d/%s/%s/' % (
+                self.pk, self.survey.user.get_profile().slug,
+                slugify(self.survey.title))
+        else:
+            return '/%d/%s/%s/' % (
+                self.pk, self.survey.user.get_profile().slug,
+                slugify(self.survey.title))
+
+    def get_voting_url_profile_survey_round(self):
+        if self.slug in EMPTY_VALUES:
+            return '/%d/%s/%s/%s/' % (
+                self.pk, self.survey.user.get_profile().slug,
+                slugify(self.survey.title), slugify(self.title))
+        else:
+            return '/%d/%s/%s/%s/' % (
+                self.pk, self.survey.user.get_profile().slug,
+                slugify(self.survey.title), self.slug)
+
+    def is_date_in_range(self):
+        now = django.utils.timezone.now()
+
+        # limited by start and end
+        if self.date_from and self.date_to:
+            return self.date_from <= now <= self.date_to
+
+        # limited by start
+        if self.date_from:
+            return self.date_from <= now
+
+        # limited by end
+        if self.date_to:
+            return now <= self.date_to
+
+            # unlimited
+        #        if not self.date_from and not self.date_to:
+        return True
+
+    def get_form(self):
+        from votebase.core.surveys.forms import SegmentForm
+        return SegmentForm(instance=self)
+
+    def is_secured(self):
+        if self.password in EMPTY_VALUES:
+            return False
+        return self.password.strip() not in EMPTY_VALUES
+
+    def user_already_voted(self, user):
+        if not user.is_authenticated():
+            return False
+        from votebase.core.voting.models import Voter
+        return Voter.objects.filter(user=user, round=self).exists()
+
+
+def brandingimage_upload_to_image(instance, filename):
+    file_name, file_extension = os.path.splitext(filename)
+    return 'b/%s/%s%s' % (instance.survey.pk, file_name, file_extension)
+
+
+class BrandingImage(models.Model):
+    survey = models.ForeignKey(Survey, verbose_name=_(u'survey'))
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name=_(u'survey'))
+    image = models.ImageField(
+        _(u'Image'), upload_to=brandingimage_upload_to_image)
+    created = models.DateTimeField(_(u'created'), default=now)
+    modified = models.DateTimeField(_(u'modified'))
+    objects = BrandingImageQuerySet.as_manager()
+
+    class Meta:
+        app_label = 'surveys'
+        db_table = 'votebase_brandingimages'
+        verbose_name = _(u'branding image')
+        verbose_name_plural = _(u'branding images')
+
+    def __unicode__(self):
+        return self.image.name
+
+    def save(self, **kwargs):
+        self.modified = now()
+        super(BrandingImage, self).save(**kwargs)
