@@ -1,0 +1,20 @@
+""" Apps file for setting core package when app is ready
+"""
+from django.apps import AppConfig
+from core_explore_keyword_registry_app import discover as discover_xslt
+from core_explore_keyword_registry_app.permissions import discover as discover_permissions
+
+
+class ExploreKeywordRegistryAppConfig(AppConfig):
+    """ Explore Keyword Registry application settings
+    """
+    name = 'core_explore_keyword_registry_app'
+
+    def ready(self):
+        """ Run when the app is ready.
+
+        Returns:
+
+        """
+        discover_xslt.init_xslt()
+        discover_permissions.init_permissions(self.apps)
