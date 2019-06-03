@@ -1,0 +1,37 @@
+import setuptools
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+setuptools.setup(
+    name="delete-facebook-posts",
+    version="1.1.3",
+    author="Wesley Kerfoot",
+    author_email="wes@wesk.tech",
+    description="A Selenium Script to Delete Facebook Posts",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/weskerfoot/DeleteFB",
+    packages=setuptools.find_packages(),
+    include_package_data=True,
+    package_data={
+        # If any package contains *.txt or *.rst files, include them:
+        '': ['*.json'],
+    },
+    install_requires = [
+        "selenium",
+        "selenium-requests",
+        "requests",
+        "pybloom-live"
+    ],
+    classifiers= [
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    entry_points = {
+        "console_scripts" : [
+            "deletefb = deletefb.deletefb:run_delete"
+        ]
+    }
+)
