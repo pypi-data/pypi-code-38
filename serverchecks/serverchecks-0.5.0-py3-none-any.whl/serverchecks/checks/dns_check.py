@@ -1,0 +1,32 @@
+from typing import List
+
+import dns.resolver
+from dns.exception import DNSException
+
+from serverchecks import Outcome
+from serverchecks.checks import AbstractCheck
+
+
+class DnsCheck(AbstractCheck):
+    name = 'DNS'
+
+    def __init__(self, **kwargs) -> None:
+        self.fqdn = kwargs.get('fqdn')
+        self.records = kwargs.get('records', ('A', 'AAAA'))
+        # XXX: implement delegation check
+        self.check_delegation = kwargs.get('check_delegation', False)
+
+    async def check(self) -> Outcome:
+        ret: List = []
+        try:
+            for record in self.records:
+                ret.append(dns.resolver.query(self.fqdn, record).rrset)
+            return Outcome(True, str(ret))
+        except DNSException as e:
+            return Outcome(False, f'DNS resolution for {self.fqdn} failed: {e}')
+
+    def __str__(self):
+        return f'<{self.name} "{self.fqdn}" ({self.records})>'
+
+
+check_class = DnsCheck
