@@ -1,0 +1,2 @@
+from my_app_demo_workshop.string_generator.long_string import get_long_string as long
+from my_app_demo_workshop.string_generator.short_string import get_short_string as short
