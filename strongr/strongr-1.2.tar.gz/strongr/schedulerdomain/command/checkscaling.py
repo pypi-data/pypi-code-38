@@ -1,0 +1,2 @@
+class CheckScaling(object):
+    pass

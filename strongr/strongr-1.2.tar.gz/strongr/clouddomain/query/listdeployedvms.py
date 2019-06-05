@@ -1,0 +1,2 @@
+class ListDeployedVms:
+    pass
