@@ -1,0 +1,1 @@
+name = "agora-community-sdk"
