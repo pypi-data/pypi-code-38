@@ -1,0 +1,1 @@
+BareException = Exception
