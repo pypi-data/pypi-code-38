@@ -1,0 +1,26 @@
+# Searchable Field Types
+TEXT = "Text"
+TERMSET = "Term" # TEXT without position infos, cannot phrase search
+STRING = "String"
+LIST = "List"
+FNUM = "Fnum"
+COORD = "Coord4" 
+COORD4 = "Coord4" # 4 decimals, 10 M precision
+COORD6 = "Coord6" # 6 decimals, 10 CM precision
+COORD8 = "Coord8" # 8 decimals, 1 MM precision
+BIT8  = "Bit8"
+BIT16 = "Bit16"
+BIT24 = "Bit24"
+BIT32 = "Bit32"
+BIT40 = "Bit40"
+BIT48 = "Bit48"
+BIT56 = "Bit56"
+BIT64 = "Bit64"
+INT8  = "Int8"
+INT16 = "Int16"
+INT24 = "Int24"
+INT32 = "Int32"
+INT40 = "Int40"
+INT48 = "Int48"
+INT56 = "Int56"
+INT64 = "Int64"
