@@ -1,0 +1,1 @@
+name = "simulating_pkg_taking_1min_to_install"
