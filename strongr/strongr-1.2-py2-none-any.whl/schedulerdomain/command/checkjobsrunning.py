@@ -1,0 +1,2 @@
+class CheckJobsRunning:
+    pass

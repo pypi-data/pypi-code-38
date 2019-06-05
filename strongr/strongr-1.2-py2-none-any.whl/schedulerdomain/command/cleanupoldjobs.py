@@ -1,0 +1,2 @@
+class CleanupOldJobs(object):
+    pass
