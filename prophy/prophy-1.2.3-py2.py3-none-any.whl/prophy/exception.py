@@ -1,0 +1,2 @@
+class ProphyError(Exception):
+    pass
