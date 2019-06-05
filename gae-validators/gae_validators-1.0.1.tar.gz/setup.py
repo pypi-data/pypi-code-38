@@ -1,0 +1,24 @@
+# -*- coding: utf-8 -*-
+from distutils.core import setup
+
+packages = \
+['gae_validators']
+
+package_data = \
+{'': ['*']}
+
+setup_kwargs = {
+    'name': 'gae-validators',
+    'version': '1.0.1',
+    'description': 'User input validation with defaults for the Google App Engine datastore.',
+    'long_description': 'Copyright &copy; 2014-2019, [Brendan Doms](http://www.bdoms.com/)  \nLicensed under the [MIT license](http://www.opensource.org/licenses/MIT)\n\n# GAE Validators\n\nGAE Validators provides user input validation methods with smart defaults for the Google App Engine datastore.\n\n## Build Status\n\n![Python 2 Tests](https://api.cirrus-ci.com/github/bdoms/gae_validators.svg?task=python2_tests)\n![Python 3 Tests](https://api.cirrus-ci.com/github/bdoms/gae_validators.svg?task=python3_tests)\n![Flake8 Linter](https://api.cirrus-ci.com/github/bdoms/gae_validators.svg?task=flake8)\n![Build Package](https://api.cirrus-ci.com/github/bdoms/gae_validators.svg?task=build_package)\n\n## How It Works\n\nEach validator is simply a method that receives string input and returns a tuple of `(valid, value)` back.\n`valid` is simply a boolean of whether the input passed validation or not.\n`value` is a coerced, potentially optimized version of the input.\nFor example, strings have outer whitespace stripped, while integers, booleans, and dates are all returned as their respective type.\n\nSome validators have additional parameters to help configure how validation should be done.\nBy default, these are all defined to match the restrictions of the\n[GAE properties](https://cloud.google.com/appengine/docs/python/datastore/typesandpropertyclasses).\nIn theory you could support any datastore backend simply by changing the configuration parameters.\n\n## Example Use\n\nThe normal flow of a program would be to get some user input from a form, pull it out of the request, and validate it.\nIf validation passes for all the fields, then update the datastore, if not, then return helpful errors to the user.\nFor example:\n\n\n```python\nfrom gae_validators import validateEmail\n\nclass ExampleHandler(webapp2.RequestHandler):\n\n    def post(self):\n\n        form_email = self.request.get("email")\n\n        is_valid, validated_email = validateEmail(form_email)\n\n        if is_valid:\n            user.email = validated_email\n            user.put()\n        else:\n            self.redirect("/user/update?errors=email")\n```\n\n## Available Validators\n\nHere are all the function signatures with their default configuration values:\n\n```python\nvalidateString(source, max_length=500, newlines=False, encoding=\'utf-8\')\n\nvalidateRequiredString(source, max_length=500, newlines=False, encoding=\'utf-8\')\n# same as above execpt that an empty string will fail\n\nvalidateText(source, max_length=ONE_MB, newlines=True, encoding=\'utf-8\')\n# ONE_MB is defined as 2 ** 20\n\nvalidateRequiredText(source, max_length=ONE_MB, newlines=True, encoding=\'utf-8\')\n\nvalidateEmail(source)\n\nvalidateRequiredEmail(source)\n\nvalidatePhone(source)\n# returns the number in a good approximation of E.164 format\n# this should work exactly for numbers with country code 1 (US and Canada)\n# however it will not be correct in all cases for all countries\n# you\'ll need a different solution if you want full international support\n\nvalidateRequiredPhone(source)\n\nvalidateUrl(source)\n# only http and https schemes are supported\n\nvalidateRequiredUrl(source)\n\nvalidateChoices(source, choices)\n# choices should be an iterable\n\nvalidateRequiredChoices(source, choices)\n\nvalidateBool(source)\n# any value can be truthy or falsy\n# so there is no required version of validateBool, and it will never return an invalid result\n\nvalidateInt(source, min_amount=-INT_SIZE, max_amount=INT_SIZE - 1)\n# INT_SIZE is defined as a 64 bit signed integer, which means 2 ** 63\n\nvalidateRequiredInt(source, min_amount=-INT_SIZE, max_amount=INT_SIZE - 1)\n\nvalidateFloat(source, min_amount=-INT_SIZE, max_amount=INT_SIZE - 1)\n\nvalidateRequiredFloat(source, min_amount=-INT_SIZE, max_amount=INT_SIZE - 1)\n\nvalidateDateTime(source, date_format="%Y-%m-%dT%H:%M", future_only=False, past_only=False)\n\nvalidateRequiredDateTime(source, date_format="%Y-%m-%dT%H:%M", future_only=False, past_only=False)\n\nvalidateDate(source, date_format="%Y-%m-%d", future_only=False, past_only=False)\n\nvalidateRequiredDate(source, date_format="%Y-%m-%d", future_only=False, past_only=False)\n\nvalidateTime(source, time_format="%H:%M")\n\nvalidateRequiredTime(source, time_format="%H:%M")\n```\n',
+    'author': 'Brendan Doms',
+    'author_email': 'b@bdoms.com',
+    'url': 'https://github.com/bdoms/gae_validators',
+    'packages': packages,
+    'package_data': package_data,
+    'python_requires': '>=2.0,<4.0',
+}
+
+
+setup(**setup_kwargs)
