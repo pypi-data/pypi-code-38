@@ -1,0 +1,20 @@
+""" Test factories. """
+import factory
+
+from django.contrib.auth import get_user_model
+
+PASSWORD = 'password'
+
+
+class UserFactory(factory.DjangoModelFactory):
+    """ User factory. """
+    # pylint: disable=unnecessary-lambda
+    username = email = factory.Sequence(lambda n: 'user{}'.format(n))
+    email = factory.Sequence(lambda n: 'user{}@example.com'.format(n))
+    password = factory.PostGenerationMethodCall('set_password', PASSWORD)
+    is_active = True
+    is_superuser = False
+    is_staff = False
+
+    class Meta(object):
+        model = get_user_model()
