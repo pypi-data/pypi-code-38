@@ -1,0 +1,2 @@
+class RequestResourcesRequired(object):
+    pass

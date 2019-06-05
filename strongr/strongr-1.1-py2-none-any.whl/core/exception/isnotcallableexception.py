@@ -1,0 +1,2 @@
+class IsNotCallableException(Exception):
+    pass
