@@ -1,0 +1,2 @@
+class InvalidCompilation(Exception):
+    pass
