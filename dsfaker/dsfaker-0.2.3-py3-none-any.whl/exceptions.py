@@ -1,0 +1,2 @@
+class NotCompatibleGeneratorException(Exception):
+    pass
