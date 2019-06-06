@@ -1,0 +1,1 @@
+from vstreamer.application.VideoStreamerApplication import VideoStreamerApplication
