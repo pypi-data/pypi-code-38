@@ -1,0 +1,4 @@
+
+
+class CommandError(SystemExit):
+    pass
