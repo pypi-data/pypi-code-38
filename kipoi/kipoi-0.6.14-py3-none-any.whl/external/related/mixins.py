@@ -1,0 +1,1 @@
+from kipoi_utils.external.related.mixins import * # backward comp
