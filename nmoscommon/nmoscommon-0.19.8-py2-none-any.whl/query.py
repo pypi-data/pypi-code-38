@@ -1,0 +1,174 @@
+# Copyright 2017 British Broadcasting Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import print_function
+from gevent import monkey
+monkey.patch_all()
+
+from six.moves import range as xrange # noqa E402
+import gevent # noqa E402
+import json # noqa E402
+import requests # noqa E402
+import websocket # noqa E402
+import itertools # noqa E402
+
+from nmoscommon.logger import Logger # noqa E402
+from nmoscommon.nmoscommonconfig import config as _config # noqa E402
+
+QUERY_APIVERSION = _config.get('nodefacade').get('NODE_REGVERSION')
+QUERY_APINAMESPACE = "x-nmos"
+QUERY_APINAME = "query"
+QUERY_MDNSTYPE = "nmos-query"
+
+
+class BadSubscriptionError(Exception):
+    pass
+
+
+class QueryNotFoundError(Exception):
+    pass
+
+
+class QueryService(object):
+
+    def __init__(self, mdns_bridge, logger=None, apiversion=QUERY_APIVERSION,  priority=None):
+        self.mdns_bridge = mdns_bridge
+        self._query_url = self.mdns_bridge.getHref(QUERY_MDNSTYPE, priority)
+        iter = 0
+        # TODO FIXME: Remove once IPv6 work complete and Python can use link local v6 correctly
+        while "fe80:" in self._query_url:
+            self._query_url = self.mdns_bridge.getHref(QUERY_MDNSTYPE, priority)
+            iter += 1
+            if iter > 20:
+                break
+        self.logger = Logger("nmoscommon.query", logger)
+        self.apiversion = apiversion
+        self.priority = priority
+
+    def _get_query(self, url):
+        backoff = [0.3, 0.7, 1.0]
+        for try_i in xrange(len(backoff)):
+            try:
+                response = requests.get(
+                    "{}/{}/{}/{}{}".format(self._query_url, QUERY_APINAMESPACE, QUERY_APINAME, self.apiversion, url)
+                )
+                response.raise_for_status()
+                return response
+            except Exception as e:
+                self.logger.writeWarning("Could not GET from query service at {}{}: {}".format(self._query_url, url, e))
+                if try_i == len(backoff) - 1:
+                    raise QueryNotFoundError(e)
+
+                # TODO: sleep between requests to back off
+                self._query_url = self.mdns_bridge.getHref(QUERY_MDNSTYPE, self.priority)
+                self.logger.writeInfo("Trying query at: {}".format(self._query_url))
+
+        # Shouldn't get this far, but don't return None
+        raise QueryNotFoundError("Could not find a query service (should be unreachable!)")  # pragma: no cover
+
+    def get_services(self, service_urn, node_id=None):
+        """
+        Look for nodes which contain a particular service type.
+        Returns a list of found service objects, or an empty list on not-found.
+        May raise a QueryNotFound exception if query service can't be contacted.
+        """
+        response = self._get_query("/nodes/")
+        if response.status_code != 200:
+            self.logger.writeError("Could not get /nodes/ from query service at {}".format(self._query_url))
+            return []
+
+        nodes = response.json()
+
+        services = []
+
+        if node_id is None:
+            services = itertools.chain.from_iterable([n.get('services', []) for n in nodes])
+        else:
+            services = itertools.chain.from_iterable([n.get('services', []) for n in nodes if n["id"] == node_id])
+
+        return [s for s in services if s.get('type', 'unknown') == service_urn]
+
+    def subscribe_topic(self, topic, on_event, on_open=None):
+        """
+        Subscribe to a query service topic, calling `on_event` for changes.
+        Will block unless wrapped in a gevent greenlet:
+            gevent.spawn(qs.subscribe_topic, "flows", on_event)
+        If `on_open` is given, it will be called when the websocket is opened.
+        """
+        query_url = self.mdns_bridge.getHref(QUERY_MDNSTYPE, self.priority)
+
+        if query_url == "":
+            raise BadSubscriptionError("Could not get query service from mDNS bridge")
+
+        query_url = query_url + "/" + QUERY_APINAMESPACE + "/" + QUERY_APINAME + "/" + self.apiversion
+
+        resource_path = "/" + topic.strip("/")
+        params = {"max_update_rate_ms": 100, "persist": False, "resource_path": resource_path, "params": {}}
+        r = requests.post(query_url + "/subscriptions", data=json.dumps(params), proxies={'http': ''})
+        if r.status_code not in [200, 201]:
+            raise BadSubscriptionError("{}: {}".format(r.status_code, r.text))
+
+        r_json = r.json()
+        if "ws_href" not in r_json:
+            raise BadSubscriptionError("Result has no 'ws_href': {}".format(r_json))
+
+        assert(query_url.startswith("http://"))
+        ws_href = r_json.get("ws_href")
+
+        # handlers for websocket events
+        def _on_open(*args):
+            if on_open is not None:
+                on_open()
+
+        def _on_close(*args):
+            pass
+
+        def _on_message(*args):
+            assert(len(args) >= 1)
+            data = json.loads(args[1])
+            events = data["grain"]["data"]
+            if isinstance(events, dict):
+                events = [events]
+            for event in events:
+                on_event(event)
+
+        # Open websocket connection, and poll
+        sock = websocket.WebSocketApp(ws_href, on_open=_on_open, on_message=_on_message, on_close=_on_close)
+        if sock is None:
+            raise BadSubscriptionError("Could not open websocket at {}".format(ws_href))
+
+        sock.run_forever()
+
+
+if __name__ == '__main__':  # pragma: no cover
+    from nmoscommon.mdnsbridge import IppmDNSBridge
+    from pprint import pprint
+
+    qs = QueryService(IppmDNSBridge())
+
+    print(qs.get_services("urn:x-ipstudio:service:status/v1.0"))
+    print(qs.get_services("urn:x-ipstudio:service:storedflowquery/v2.0"))
+    print(qs.get_services("urn:x-ipstudio:service:fake/v1.0"))
+
+    def callback(data):
+        print("\n----\n",)
+        pprint(data)
+
+    def on_open():
+        print("ONOPEN")
+
+    gevent.spawn(qs.subscribe_topic, "nodes", callback, on_open)
+
+    while True:
+        gevent.sleep(1)
