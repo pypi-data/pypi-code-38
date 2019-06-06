@@ -1,0 +1,2 @@
+class JournalException(RuntimeError):
+    pass
