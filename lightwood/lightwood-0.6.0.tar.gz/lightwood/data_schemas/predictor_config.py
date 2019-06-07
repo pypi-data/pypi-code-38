@@ -1,0 +1,40 @@
+from schema import Schema, And, Use, Optional
+from lightwood.constants.lightwood import COLUMN_DATA_TYPES, HISTOGRAM_TYPES
+
+feature_schema = Schema({
+    'name': str,
+    'type': And(str, Use(str.lower), lambda s: s in COLUMN_DATA_TYPES.get_attributes().values()),
+    Optional('encoder_class'): object,
+    Optional('encoder_attrs'): dict
+})
+
+
+default_mixer_schema = Schema({
+    'class': object,
+    Optional('attrs'): dict
+})
+
+mixer_schema = Schema({
+    'name': str,
+    'input': list,
+    Optional('output'): list,
+    'class': object,
+    Optional('attrs'): dict
+})
+
+predictor_config_schema = Schema({
+
+    'input_features': [
+        feature_schema
+    ],
+    'output_features': [
+        feature_schema
+    ],
+    Optional('default_mixer'): default_mixer_schema,
+    Optional('mixers'): [mixer_schema]
+
+})
+
+
+
+
