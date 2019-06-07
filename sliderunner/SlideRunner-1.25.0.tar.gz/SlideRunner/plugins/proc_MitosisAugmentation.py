@@ -1,0 +1,197 @@
+"""
+
+        This is SlideRunner - An Open Source Annotation Tool 
+        for Digital Histology Slides.
+
+         Marc Aubreville, Pattern Recognition Lab, 
+         Friedrich-Alexander University Erlangen-Nuremberg 
+         marc.aubreville@fau.de
+
+        If you use this software in research, please citer our paper:
+        M. Aubreville, C. Bertram, R. Klopfleisch and A. Maier:
+        SlideRunner - A Tool for Massive Cell Annotations in Whole Slide Images. 
+        In: Bildverarbeitung für die Medizin 2018. 
+        Springer Vieweg, Berlin, Heidelberg, 2018. pp. 309-314.
+
+        This file:
+	   Visualize bounding boxes (object detection results)
+
+"""
+
+import SlideRunner.general.SlideRunnerPlugin as SlideRunnerPlugin
+import queue
+from threading import Thread
+from queue import Queue
+import cv2
+import os
+import numpy as np
+import matplotlib.pyplot as plt 
+import sklearn.cluster
+import matplotlib.colors
+import staintools
+import scipy
+import pickle
+import SlideRunner.dataAccess.annotations as annotations 
+import matplotlib.path as path
+from skimage.feature import blob_dog
+from staintools.miscellaneous.get_concentrations import get_concentrations
+
+
+class Plugin(SlideRunnerPlugin.SlideRunnerPlugin):
+    version = 0.1
+    shortName = 'Augmented Mitosis Enhancement'
+    inQueue = Queue()
+    outQueue = Queue()
+    initialOpacity=1.0
+    updateTimer=0.1
+    outputType = SlideRunnerPlugin.PluginOutputType.RGB_IMAGE
+    description = 'Show unpickled object detection results'
+    pluginType = SlideRunnerPlugin.PluginTypes.WHOLESLIDE_PLUGIN
+    configurationList = list((
+                            SlideRunnerPlugin.FilePickerConfigurationEntry(uid='file', name='Result file', mask='*.p;*.txt'),
+                            SlideRunnerPlugin.PluginConfigurationEntry(uid='threshold', name='Detection threshold', initValue=0.5, minValue=0.0, maxValue=1.0),
+                            SlideRunnerPlugin.PluginConfigurationEntry(uid='distance', name='Maximum center distance', initValue=30, minValue=1, maxValue=100)
+                            ))
+    
+    COLORS = [[0,128,0,255],
+              [128,0,0,255],
+              [0,0,128,255],
+              [128,128,0,255],
+              [0,128,128,255],
+              [128,128,128,255]]
+
+    def __init__(self, statusQueue:Queue):
+        self.statusQueue = statusQueue
+        self.annotationLabels = {'Detection' : SlideRunnerPlugin.PluginAnnotationLabel(0,'Detection', [0,180,0,255]),}
+        self.p = Thread(target=self.queueWorker, daemon=True)
+        self.p.start()
+
+
+
+        pass
+
+    def getAnnotationUpdatePolicy():
+          # This is important to tell SlideRunner that he needs to update for every change in position.
+          return SlideRunnerPlugin.AnnotationUpdatePolicy.UPDATE_ON_SLIDE_CHANGE
+
+
+    def queueWorker(self):
+        debugModule= False
+        quitSignal = False
+        oldFilename = ''
+        oldArchive = ''
+        oldDistance=-1
+        oldSlidename=''
+        oldThres=-1
+        while not quitSignal:
+            job = SlideRunnerPlugin.pluginJob(self.inQueue.get())
+            print(job)
+            print(job.configuration)
+
+            if (job.jobDescription == SlideRunnerPlugin.JobDescription.QUIT_PLUGIN_THREAD):
+                # signal to exit this thread
+                quitSignal=True
+                continue
+            
+            if ('file' not in job.configuration):
+                continue
+
+            if (job.configuration['file'] == oldArchive) and (job.slideFilename == oldSlidename) and (job.configuration['threshold'] == oldThres) and (job.configuration['distance'] == oldDistance):
+                continue
+            
+            
+            if not (os.path.exists(job.configuration['file'])):
+                continue
+
+            self.sendAnnotationLabelUpdate()
+
+            oldArchive = job.configuration['file']
+            oldThres = job.configuration['threshold']
+            oldDistance = job.configuration['distance']
+            oldSlidename = job.slideFilename
+            [foo,self.ext] = os.path.splitext(oldArchive)
+            self.ext = self.ext.upper()
+
+            self.annos = list()
+
+
+            if (self.ext=='.P'): # Pickled format - results for many slides
+                self.resultsArchive = pickle.load(open(oldArchive,'rb'))
+
+                pname,fname = os.path.split(job.slideFilename)
+                if (oldFilename is not fname):
+                    # process slide
+                    if (fname not in self.resultsArchive):
+                        self.setMessage('Slide '+str(fname)+' not found in results file.')
+                        continue
+                    
+                    oldFilename=fname
+
+
+                uniqueLabels = np.unique(np.array(self.resultsArchive[fname])[:,4])
+
+                self.annotationLabels = dict()
+                for key,label in enumerate(uniqueLabels):
+                     self.annotationLabels[label] =  SlideRunnerPlugin.PluginAnnotationLabel(0,'Class %d' % label, self.COLORS[key % len(self.COLORS)])
+
+                for idx in range(len(self.resultsArchive[fname])):
+                        row = self.resultsArchive[fname][idx]
+                        if (row[5]>job.configuration['threshold']):
+                            center_x = (row[0]+row[2])/2
+                            center_y = (row[1]+row[3])/2
+                            myanno = annotations.spotAnnotation(uid=idx, x1=center_x, y1=center_y, text='%.2f' % row[5], pluginAnnotationLabel=self.annotationLabels[row[4]])                
+                            if (job.openedDatabase is not None):
+                                # find closest database candidates
+                                closeIdx = ((np.abs(0.5*(job.openedDatabase.minCoords[:,0]+job.openedDatabase.maxCoords[:,0])-center_x)<job.configuration['distance'])
+                                            & (np.abs(0.5*(job.openedDatabase.minCoords[:,1]+job.openedDatabase.maxCoords[:,1])-center_y)<job.configuration['distance']))
+                                if (np.count_nonzero(closeIdx)==0):
+                                    self.annos.append(myanno)
+                            else:
+                                self.annos.append(myanno)
+
+                self.sendAnnotationLabelUpdate()
+
+
+            elif (self.ext=='.TXT'): # Assume MS Coco format
+                self.resultsArchive = np.loadtxt(oldArchive, dtype={'names': ('label', 'confidence', 'x','y','w','h'), 'formats': ('U30', 'f4', 'i4','i4','i4','i4')}, skiprows=0, delimiter=' ')
+                uniqueLabels = np.unique(self.resultsArchive['label'])
+
+                self.annotationLabels = dict()
+                for key,label in enumerate(uniqueLabels):
+                     self.annotationLabels[label] =  SlideRunnerPlugin.PluginAnnotationLabel(0,label, self.COLORS[key % len(self.COLORS)])
+
+                self.sendAnnotationLabelUpdate()
+
+                for idx in range(len(self.resultsArchive)):
+                        row = self.resultsArchive[idx]
+                        if (row[5]>job.configuration['threshold']):
+                            center_x = row['x']+row['w']/2
+                            center_y = row['y']+row['h']/2
+                            myanno = annotations.spotAnnotation(uid=idx, x1=center_x, y1=center_y, text='%.2f' % row['confidence'], pluginAnnotationLabel=self.annotationLabels[row['label']])                
+                            if (job.openedDatabase is not None):
+                                # find closest database candidates
+                                closeIdx = ((np.abs(0.5*(job.openedDatabase.minCoords[:,0]+job.openedDatabase.maxCoords[:,0])-center_x)<job.configuration['distance'])
+                                            & (np.abs(0.5*(job.openedDatabase.minCoords[:,1]+job.openedDatabase.maxCoords[:,1])-center_y)<job.configuration['distance']))
+                                if (np.count_nonzero(closeIdx)==0):
+                                    self.annos.append(myanno)
+                            else:
+                                self.annos.append(myanno)
+                            
+
+
+
+            self.updateAnnotations()
+            self.setProgressBar(-1)
+            self.setMessage('found %d annotations.' % len(self.annos))
+
+
+
+    def getAnnotations(self):
+        return self.annos
+
+
+    def getAnnotationLabels(self):
+            # sending default annotation labels
+            return [self.annotationLabels[k] for k in self.annotationLabels.keys()]
+
+        
