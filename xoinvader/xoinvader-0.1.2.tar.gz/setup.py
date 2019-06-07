@@ -1,0 +1,100 @@
+# -*- coding: utf-8 -*-
+from distutils.core import setup
+
+packages = \
+['xoinvader', 'xoinvader.application', 'xoinvader.tests']
+
+package_data = \
+{'': ['*'],
+ 'xoinvader': ['config/charges.json',
+               'config/charges.json',
+               'config/charges.json',
+               'config/charges.json',
+               'config/path.json',
+               'config/path.json',
+               'config/path.json',
+               'config/path.json',
+               'config/ships.json',
+               'config/ships.json',
+               'config/ships.json',
+               'config/ships.json',
+               'config/weapons.json',
+               'config/weapons.json',
+               'config/weapons.json',
+               'config/weapons.json',
+               'res/*',
+               'res/gfx/*',
+               'res/snd/*'],
+ 'xoinvader.tests': ['fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_duplicate_names.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_no_name.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/chunk_normal.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/no_chunks.bg',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_corrupted',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_empty',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid',
+                     'fixtures/scoreboard_valid']}
+
+install_requires = \
+['pygame', 'tornado>=4,<5']
+
+entry_points = \
+{'console_scripts': ['xoigame = xoinvader.game:main']}
+
+setup_kwargs = {
+    'name': 'xoinvader',
+    'version': '0.1.2',
+    'description': '(not so) small python curses space game',
+    'long_description': '|Build Status| |codecov.io|\n\n=========\nXOInvader\n=========\n\nAttempt to create small but serious game using **python** and\n**ncurses**.\n\nRequirements\n============\n\nGeneral\n-------\n\n* Python3\n* Tornado 4.x\n* ncurses >=5.9\n\nOptional requirements (for graphics)\n------------------------------------\n\n* Pygame >=1.9.0 (pygame.Mixer)\n* SDL with devel (for compiling pygame from sources)\n* gcc with devel (for compiling pygame from sources)\n* python devel files (for compiling pygame from sources)\n\n\nDevelopment\n===========\n\nInstallation\n------------\n\n.. code-block:: console\n\n   # install virtualenv\n   $ make devel\n   $ source .venv/bin/activate\n   $ pip install -e .\n\n   $ xoigame  # ASCII with sound (Pygame.Mixer required)\n   $ xoigame -ns  # ASCII without sound (pygame not required)\n   $ xoigame -vd pygame-sdl  # Pygame-based version\n\nTesting\n-------\n\n.. code-block:: console\n\n   $ make test  # for all tests\n   $ make view_cov  # run all tests and view coverage\n   $ # pass additional arguments to pytest via PYTEST_ARGS env variable\n   $ # you can pass args such way to test and view_cov make targets\n   $ make test PYTEST_ARGS=\'-m "not slow"\'  # don\'t run slow tests\n   $ py.test --markers  # show all markers\n   $ py.test xoinvader/path/to/test_file.py  # run separate file\n\n\nDocumentation\n-------------\n\n* Autogenerated from sources `here <http://www.g-v.im/>`__.\n* Development `wiki <https://github.com/pkulev/xoinvader/wiki/>`_.\n* Build documentation from sources:\n\n  .. code-block:: console\n\n     $ make docs\n     $ make view_docs  # build and open in firefox\n\n\n.. |Build Status| image:: https://travis-ci.org/pkulev/xoinvader.svg?branch=master\n   :target: https://travis-ci.org/pkulev/xoinvader\n.. |codecov.io| image:: http://codecov.io/github/pkulev/xoinvader/coverage.svg?branch=master\n   :target: http://codecov.io/github/pkulev/xoinvader?branch=master\n',
+    'author': 'Pavel Kulyov',
+    'author_email': 'kulyov.pavel@gmail.com',
+    'url': 'https://github.com/pkulev/xoinvader',
+    'packages': packages,
+    'package_data': package_data,
+    'install_requires': install_requires,
+    'entry_points': entry_points,
+    'python_requires': '>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*',
+}
+
+
+setup(**setup_kwargs)
