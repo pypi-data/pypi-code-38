@@ -1,0 +1,277 @@
+# Copyright 2018 Dgraph Labs, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Dgraph atomic transaction support."""
+
+import json
+import grpc
+
+from pydgraph import errors, util
+from pydgraph.meta import VERSION
+from pydgraph.proto import api_pb2 as api
+
+__author__ = 'Shailesh Kochhar <shailesh.kochhar@gmail.com>'
+__maintainer__ = 'Martin Martinez Rivera <martinmr@dgraph.io>'
+__version__ = VERSION
+__status__ = 'development'
+
+
+class Txn(object):
+    """Txn is a single atomic transaction.
+
+    A transaction lifecycle is as follows:
+
+    1. Created using Client.newTxn.
+
+    2. Modified via calls to query and mutate.
+
+    3. Committed or discarded. If any mutations have been made, it's important
+    that at least one of these methods is called to clean up resources. Discard
+    is a no-op if commit has already been called, so it's safe to call discard
+    after calling commit.
+    """
+
+    def __init__(self, client, read_only=False, best_effort=False):
+        if not read_only and best_effort:
+            raise Exception('Best effort transactions are only compatible with '
+                            'read-only transactions')
+
+        self._dg = client
+        self._dc = client.any_client()
+        self._ctx = api.TxnContext()
+
+        self._finished = False
+        self._mutated = False
+        self._read_only = read_only
+        self._best_effort = best_effort
+
+    def sequencing(self, sequencing):
+        """Sets sequencing."""
+        # This method is obsolete since sequencing is no longer used. This
+        # method is being kept for backwards-compatibility.
+        pass
+
+    def query(self, query, variables=None, timeout=None, metadata=None,
+              credentials=None):
+        """Adds a query operation to the transaction."""
+        new_metadata = self._dg.add_login_metadata(metadata)
+        req = self._common_query(query, variables=variables)
+        try:
+            res = self._dc.query(req, timeout=timeout,
+                                 metadata=new_metadata,
+                                 credentials=credentials)
+        except Exception as error:
+            if util.is_jwt_expired(error):
+                self._dg.retry_login()
+                new_metadata = self._dg.add_login_metadata(metadata)
+                res = self._dc.query(req, timeout=timeout,
+                                     metadata=new_metadata,
+                                     credentials=credentials)
+            else:
+                raise error
+
+        self.merge_context(res.txn)
+        return res
+
+    def _common_query(self, query, variables=None):
+        if self._finished:
+            raise Exception(
+                'Transaction has already been committed or discarded')
+
+        req = api.Request(query=query, start_ts=self._ctx.start_ts,
+                          read_only=self._read_only, best_effort=self._best_effort)
+        if variables is not None:
+            for key, value in variables.items():
+                if util.is_string(key) and util.is_string(value):
+                    req.vars[key] = value
+                else:
+                    raise Exception(
+                        'Values and keys in variable map must be strings')
+
+        return req
+
+    def mutate(self, mutation=None, set_obj=None, del_obj=None, set_nquads=None,
+               del_nquads=None, commit_now=None, ignore_index_conflict=None,
+               timeout=None, metadata=None, credentials=None):
+        """Adds a mutate operation to the transaction."""
+        mutation = self._common_mutate(
+            mutation=mutation, set_obj=set_obj, del_obj=del_obj,
+            set_nquads=set_nquads, del_nquads=del_nquads,
+            commit_now=commit_now, ignore_index_conflict=ignore_index_conflict)
+
+        new_metadata = self._dg.add_login_metadata(metadata)
+        mutate_error = None
+
+        try:
+            assigned = self._dc.mutate(mutation, timeout=timeout,
+                                       metadata=new_metadata,
+                                       credentials=credentials)
+        except Exception as error:
+            if util.is_jwt_expired(error):
+                self._dg.retry_login()
+                new_metadata = self._dg.add_login_metadata(metadata)
+                try:
+                    assigned = self._dc.mutate(mutation, timeout=timeout,
+                                               metadata=new_metadata,
+                                               credentials=credentials)
+                except Exception as error:
+                    mutate_error = error
+            else:
+                mutate_error = error
+
+        if mutate_error is not None:
+            try:
+                self.discard(timeout=timeout, metadata=metadata,
+                             credentials=credentials)
+            except:
+                # Ignore error - user should see the original error.
+                pass
+
+            self._common_except_mutate(mutate_error)
+
+        if mutation.commit_now:
+            self._finished = True
+
+        self.merge_context(assigned.context)
+        return assigned
+
+    def _common_mutate(self, mutation=None, set_obj=None, del_obj=None,
+                       set_nquads=None, del_nquads=None,
+                       commit_now=None, ignore_index_conflict=None):
+        if self._read_only:
+            raise Exception(
+                'Readonly transaction cannot run mutations or be committed')
+        if self._finished:
+            raise Exception(
+                'Transaction has already been committed or discarded')
+        if not mutation:
+            mutation = api.Mutation()
+        if set_obj:
+            mutation.set_json = json.dumps(set_obj).encode('utf8')
+        if del_obj:
+            mutation.delete_json = json.dumps(del_obj).encode('utf8')
+        if set_nquads:
+            mutation.set_nquads = set_nquads.encode('utf8')
+        if del_nquads:
+            mutation.del_nquads = del_nquads.encode('utf8')
+        if commit_now:
+            mutation.commit_now = True
+        if ignore_index_conflict:
+            mutation.ignore_index_conflict = True
+
+        self._mutated = True
+        mutation.start_ts = self._ctx.start_ts
+        return mutation
+
+    @staticmethod
+    def _common_except_mutate(error):
+        if isinstance(error, grpc._channel._Rendezvous):
+            error.details()
+            status_code = error.code()
+            if (status_code == grpc.StatusCode.ABORTED or
+                    status_code == grpc.StatusCode.FAILED_PRECONDITION):
+                raise errors.AbortedError()
+
+        raise error
+
+    def commit(self, timeout=None, metadata=None, credentials=None):
+        """Commits the transaction."""
+        if not self._common_commit():
+            return
+
+        new_metadata = self._dg.add_login_metadata(metadata)
+        try:
+            self._dc.commit_or_abort(self._ctx, timeout=timeout,
+                                     metadata=new_metadata,
+                                     credentials=credentials)
+        except Exception as error:
+            if util.is_jwt_expired(error):
+                self._dg.retry_login()
+                new_metadata = self._dg.add_login_metadata(metadata)
+                try:
+                    self._dc.commit_or_abort(self._ctx, timeout=timeout,
+                                             metadata=new_metadata,
+                                             credentials=credentials)
+                except Exception as error:
+                    return self._common_except_commit(error)
+
+            self._common_except_commit(error)
+
+    def _common_commit(self):
+        if self._read_only:
+            raise Exception(
+                'Readonly transaction cannot run mutations or be committed')
+        if self._finished:
+            raise Exception(
+                'Transaction has already been committed or discarded')
+
+        self._finished = True
+        return self._mutated
+
+    @staticmethod
+    def _common_except_commit(error):
+        if isinstance(error, grpc._channel._Rendezvous):
+            error.details()
+            status_code = error.code()
+            if status_code == grpc.StatusCode.ABORTED:
+                raise errors.AbortedError()
+
+        raise error
+
+    def discard(self, timeout=None, metadata=None, credentials=None):
+        """Discards the transaction."""
+        if not self._common_discard():
+            return
+
+        new_metadata = self._dg.add_login_metadata(metadata)
+        try:
+            self._dc.commit_or_abort(self._ctx, timeout=timeout,
+                                     metadata=new_metadata,
+                                     credentials=credentials)
+        except Exception as error:
+            if util.is_jwt_expired(error):
+                self._dg.retry_login()
+                new_metadata = self._dg.add_login_metadata(metadata)
+                self._dc.commit_or_abort(self._ctx, timeout=timeout,
+                                         metadata=new_metadata,
+                                         credentials=credentials)
+            else:
+                raise error
+
+    def _common_discard(self):
+        if self._finished:
+            return False
+
+        self._finished = True
+        if not self._mutated:
+            return False
+
+        self._ctx.aborted = True
+        return True
+
+    def merge_context(self, src=None):
+        """Merges context from this instance with src."""
+        if src is None:
+            # This condition will be true only if the server doesn't return a
+            # txn context after a query or mutation.
+            return
+
+        if self._ctx.start_ts == 0:
+            self._ctx.start_ts = src.start_ts
+        elif self._ctx.start_ts != src.start_ts:
+            # This condition should never be true.
+            raise Exception('StartTs mismatch')
+
+        self._ctx.keys.extend(src.keys)
+        self._ctx.preds.extend(src.preds)
