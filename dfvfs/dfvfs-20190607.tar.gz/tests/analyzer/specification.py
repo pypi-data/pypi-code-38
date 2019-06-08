@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Tests for the format specification classes."""
+
+from __future__ import unicode_literals
+
+import unittest
+
+from dfvfs.analyzer import specification
+
+from tests import test_lib as shared_test_lib
+
+
+class FormatSpecificationStoreTest(shared_test_lib.BaseTestCase):
+  """Class to test the specification store."""
+
+  def testAddSpecification(self):
+    """Function to test the AddSpecification function."""
+    store = specification.FormatSpecificationStore()
+
+    format_regf = specification.FormatSpecification('REGF')
+    format_regf.AddNewSignature(b'regf', offset=0)
+
+    format_esedb = specification.FormatSpecification('ESEDB')
+    format_esedb.AddNewSignature(b'\xef\xcd\xab\x89', offset=4)
+
+    store.AddSpecification(format_regf)
+    store.AddSpecification(format_esedb)
+
+    with self.assertRaises(KeyError):
+      store.AddSpecification(format_regf)
+
+
+if __name__ == '__main__':
+  unittest.main()
