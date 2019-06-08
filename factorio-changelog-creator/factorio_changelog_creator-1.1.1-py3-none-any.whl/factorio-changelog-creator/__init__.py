@@ -1,0 +1,1 @@
+name = "factorio-changelog-creator"
