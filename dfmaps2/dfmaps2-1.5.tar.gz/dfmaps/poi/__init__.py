@@ -1,0 +1,1 @@
+from .points_of_interest import poi_maps
