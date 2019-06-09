@@ -1,0 +1,7 @@
+HOURS = "hours"
+DAYS = "days"
+WEEKS = "weeks"
+MONTHS = "months"
+YEARS = "years"
+ON_SCHEDULE = "onschedule"
+OFF_SCHEDULE = "offschedule"
