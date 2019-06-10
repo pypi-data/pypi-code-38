@@ -1,0 +1,3 @@
+
+class GenericViewException(Exception):
+    pass
