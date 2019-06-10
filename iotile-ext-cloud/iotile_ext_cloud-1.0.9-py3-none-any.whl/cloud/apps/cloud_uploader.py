@@ -1,0 +1,321 @@
+"""An IOTileApp that uploads reports from an iotile device to the cloud."""
+
+import logging
+import time
+import os
+import struct
+from typedargs.annotate import docannotate, context
+from iotile.core.exceptions import HardwareError, ArgumentError
+from iotile.core.hw import IOTileApp
+from iotile.core.hw.exceptions import RPCNotFoundError
+from iotile.core.hw.reports import SignedListReport
+from iotile.cloud import IOTileCloud, device_id_to_slug
+
+
+@context("CloudUploader")
+class CloudUploader(IOTileApp):
+    """An IOtile app that can get reports from a device and upload them to the cloud.
+
+    This app performs the same basic upload functionality as the IOTile Companion
+    mobile application.  It has a single important method: upload.  This method
+    will start a loop that:
+        - acknowledges old data from the device that has safely reched iotile.cloud
+        - triggers the device to send all of its data
+        - waits for all data to be sent
+        - uploads all reports to iotile.cloud
+
+    Args:
+        hw (HardwareManager): A HardwareManager instance connected to a
+            matching device.
+        app_info (tuple): The app_tag and version of the device we are
+            connected to.
+        os_info (tuple): The os_tag and version of the device we are
+            connected to.
+        device_id (int): The UUID of the device that we are connected to.
+    """
+
+    logger = logging.getLogger(__name__)
+
+    def __init__(self, hw, app_info, os_info, device_id):
+        super(CloudUploader, self).__init__(hw, app_info, os_info, device_id)
+
+        self._cloud_obj = None
+        self._con = self._hw.get(8, basic=True)
+
+    @property
+    def _cloud(self):
+        if self._cloud_obj is None:
+            self._cloud_obj = IOTileCloud()
+
+        return self._cloud_obj
+
+    @classmethod
+    def AppName(cls):
+        return 'cloud_uploader'
+
+    def _get_uuid(self):
+        device_id, = self._con.rpc(0x10, 0x08, result_format="L16x")
+        return device_id
+
+    def _trigger_streamer(self, index):
+        error, = self._con.rpc(0x20, 0x10, index, result_format="L")
+
+        # This error code means that the streamer did not have any new data
+        if error == 0x8003801f:
+            self.logger.info("We manually triggered streamer %d but it reported that there were no new readings", index)
+        elif error != 0:
+            raise HardwareError("Error triggering streamer", code=error, index=index)
+
+    def _streamer_finished(self, index):
+        res = self._con.rpc(0x20, 0x0a, index, result_type=(0, True))
+
+        #Check if we got an error that means the streamer doesn't exist
+        if len(res['buffer']) == 4:
+            _error, = struct.unpack("<L", res['buffer'])
+            return None
+
+        comm_status, = struct.unpack("<18xBx", res['buffer'])
+        return comm_status == 0
+
+    def _wait_streamers_finished(self, timeout=60*10.0):
+        start = time.time()
+
+        while (time.time() - start) < timeout:
+            for i in range(0, 16):
+                self.logger.info("Waiting for streamer %d", i)
+                while True:
+                    status = self._streamer_finished(i)
+                    if status is None:
+                        self.logger.info("No streamer %d, all streamers finished", i)
+                        return
+                    elif status is True:
+                        break
+
+                    time.sleep(1.0)
+
+                self.logger.info("Streamer %d finished", i)
+
+        raise HardwareError("Device took too long to stream data", timeout_seconds=timeout)
+
+    def _ack_streamer(self, index, value, force=False):
+        if index <= 0xFF:
+            error, = self._con.rpc(0x20, 0x0f, index, int(force), value, arg_format="HHL", result_format="L")
+
+            if error == 0x8003801e:
+                # This means the streamer value is older than what is already there, this is not an error
+                pass
+            elif error:
+                raise HardwareError("Error acknowledging streamer", error_code=error, index=index, value=value)
+        else:
+            raise ArgumentError("Streamer index is out of bounds", index=index)
+
+    def _wait_finished_streaming(self):
+        time.sleep(1.0)
+        self._wait_streamers_finished()
+
+    def download(self, trigger=None, acknowledge=True, force=None, save=None):
+        """Synchronously download all reports from the device.
+
+        This function will:
+        - acknowledge old data from the device that has safely reached iotile.cloud
+          unless you pass acknowledge=False
+        - trigger the device to send all of its data.  This happens automatically
+          when we enable_streaming.  However, if you need to manually trigger a
+          streamer, you can specify that using trigger=X where X is in the index
+          of the streamer to trigger.
+        - wait for all data to be received from the device.
+
+        The only difference between this function and upload is that this function
+        will return the reports as a list, rather than uploading them directly
+        to iotile.cloud.
+
+        Args:
+            trigger (int): If you need to manually trigger a streamer on the device,
+                you can specify its index here and it will have trigger_streamer called
+                on it before we enter the upload loop.
+            acknowledge (bool): If you don't want to send all cloud acknowledgements
+                down to the device before enabling streaming, you can pass False.  The
+                default behavior is True.
+            force (dict): If you want to forcibly set the acknowledgement for a given
+                streamer you can pass it in this dictionary.  The value passed will
+                be used instead of whatever was received from the cloud.  It can be
+                a number, which is interpreted as the value to acknowledge, or it can
+                be a tuple with a number and boolean, which is interpreted as the
+                force parameter.
+            save (str): Optional path to save the reports that are downloaded.
+                If not passed, reports will not be saved.  The path should
+                point to a directory. If it does not exist, it will be created
+                (as will any needed parent directories)
+
+        Returns:
+            list of IOTileReport: The list of reports received from the device.
+        """
+
+        device_id = self._get_uuid()
+        slug = device_id_to_slug(device_id)
+
+        self.logger.info("Connected to device 0x%X", device_id)
+
+        streamer_acks = []
+        if force is not None:
+            for index, value in force.items():
+                force_ack = False
+                if isinstance(value, tuple):
+                    value, force_ack = value
+
+                streamer_acks.append((index, value, force_ack))
+
+        if acknowledge:
+            self.logger.info("Getting acknowledgements from cloud for slug %s", slug)
+
+            resp = self._cloud.api.streamer.get(device=slug)
+            acks = resp.get('results', [])
+            self.logger.info("Found %d acknowledgements", len(acks))
+
+            for ack in acks:
+                index = ack['index']
+                last_id = ack['last_id']
+
+                if index <= 0xFF:
+                    streamer_acks.append((index, last_id, False))
+
+        else:
+            self.logger.info("Not acknowledging readings from cloud per user request")
+
+        for index, last_id, force in streamer_acks:
+            self.logger.info("Acknowledging highest ID %d for streamer %d (force=%s)", last_id, index, force)
+            self._ack_streamer(index, last_id, force=force)
+
+        # Configure Downloader to not break up the report
+        # on old pod firmware the required RPC is not implemented to allow this
+        # to fail.
+        self.set_report_size(allow_fail=True)  # Set to max report size
+        self._hw.enable_streaming()
+
+        if trigger is not None:
+            self.logger.info("Explicitly triggering streamer %d", trigger)
+            self._trigger_streamer(trigger)
+
+        self._wait_streamers_finished()
+
+        reports = [x for x in self._hw.iter_reports()]
+        signed_reports = [x for x in reports if isinstance(x, SignedListReport)]
+
+        self.logger.info("Received %d signed reports, ignored %d realtime reports",
+                         len(signed_reports), len(reports) - len(signed_reports))
+
+        if save is not None:
+            if not os.path.exists(save):
+                self.logger.debug("Creating directory to save reports: %s", save)
+                os.makedirs(os.path.abspath(save), exist_ok=True)
+
+            for report in signed_reports:
+                outname = "report-{:08x}-{:04x}-{}.bin".format(report.origin, report.origin_streamer,
+                                                               report.received_time.isoformat().replace(':', '_'))
+                outpath = os.path.join(save, outname)
+
+                with open(outpath, "wb") as outfile:
+                    outfile.write(report.encode())
+
+                self.logger.debug("Saved report to file %s", outname)
+
+        return signed_reports
+
+    @docannotate
+    def upload(self, trigger=None, acknowledge=True, save=None):
+        """Synchronously get all data from the device and upload it to iotile.cloud.
+
+        This function will:
+        - acknowledge old data from the device that has safely reached iotile.cloud
+          unless you pass acknowledge=False
+        - trigger the device to send all of its data.  This happens automatically
+          when we enable_streaming.  However, if you need to manually trigger a
+          streamer, you can specify that using trigger=X where X is in the index
+          of the streamer to trigger.
+        - wait for all data to be received from the device.
+        - upload all reports to iotile.cloud securely.
+
+        If you want to see details about what is happening, you can capture the
+        logging output.
+
+        This method will use whatever the default iotile.cloud domain and credentials
+        are that are configured in your current virtualenv.
+
+        Args:
+            trigger (int): If you need to manually trigger a streamer on the device,
+                you can specify its index here and it will have trigger_streamer called
+                on it before we enter the upload loop.
+            acknowledge (bool): If you don't want to send all cloud acknowledgements
+                down to the device before enabling streaming, you can pass False.  The
+                default behavior is True.
+            save (str): Optional path to save the reports that are downloaded.  If not
+                passed, reports will not be saved.  The path should point to a directory.
+                If it does not exist, it will be created (as will any needed parent directories)
+        """
+
+        signed_reports = self.download(trigger, acknowledge, save)
+
+        for report in signed_reports:
+            self.logger.info("Uploading report with ids in (%d, %d)", report.lowest_id, report.highest_id)
+            self._cloud.upload_report(report)
+
+    @docannotate
+    def save_locally(self, folder, trigger=None):
+        """Synchronously get all reports from the device and save them to a local folder.
+
+        This function **does not access iotile.cloud**, is idempotent and does
+        not acknowledge any report readings either before or after downloading the reports.
+
+        Args:
+            folder (str): Optional path to save the reports that are downloaded.  If not
+                passed, reports will not be saved.  The path should point to a directory.
+                If it does not exist, it will be created (as will any needed parent directories)
+            trigger (int): If you need to manually trigger a streamer on the device,
+                you can specify its index here and it will have trigger_streamer called
+                on it before we enter the upload loop.
+        """
+
+        self.download(trigger, False, save=folder)
+
+    @docannotate
+    def get_report_size(self):
+        """ Gets the configured report size for a pod.
+
+        Returns:
+           int: The maximum size of a report
+
+        """
+        maxpacket, _comp1, _comp2 = self._con.rpc(0x0A, 0x06, result_format="LBB")
+        return maxpacket
+
+    @docannotate
+    def set_report_size(self, size=0xFFFFFFFF, allow_fail=False):
+        """ Sets and verifies the report size for a pod.
+
+        If the POD's firmware does not support setting report size, this will
+        raise an exception unless you pass ``allow_fail=True``, in which case
+        it will continue with the default report size for the POD.
+
+        Args:
+            size (int): The maximum size of a report
+            allow_fail (bool): Optional argument to not raise an exception if the
+                POD's firmware does not support configuring report size, i.e. the
+                RPC call raises RPCNotFoundError.
+        """
+
+        try:
+            error, = self._con.rpc(0x0A, 0x05, size, 0, arg_format="LB", result_format="L")
+        except RPCNotFoundError:
+            self.logger.warning("Could not set report size because firmware was old and didn't support needed RPC 0x0a05")
+            if allow_fail:
+                return
+
+            raise
+
+        if error:
+            raise HardwareError("Error setting report size.", error_code=error, size=size)
+
+        maxpacket, _comp1, _comp2 = self._con.rpc(0x0A, 0x06, result_format="LBB")
+
+        if maxpacket != size:
+            raise HardwareError("Max Packet Size was not set as expected")
