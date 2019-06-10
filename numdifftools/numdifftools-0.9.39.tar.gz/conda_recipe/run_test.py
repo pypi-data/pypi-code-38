@@ -1,0 +1,4 @@
+import numdifftools
+
+
+numdifftools.test()
