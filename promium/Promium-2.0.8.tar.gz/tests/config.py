@@ -1,0 +1,8 @@
+WIKI_HOST = ''
+PROJECT_HOST = 'prom.ua'
+PROJECT_PORT = ''
+GRID_HOST_PORT = '0.0.0.0:13400'
+DB = ''
+CHECK_TEST_CASE = False
+
+OPERA_BINARY_LOCATION = '/usr/bin/opera'
