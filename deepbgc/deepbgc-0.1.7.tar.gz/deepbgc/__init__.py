@@ -1,0 +1,2 @@
+from .__version__ import __version__
+from .pipeline import DeepBGCClassifier, DeepBGCDetector, HmmscanPfamRecordAnnotator, DeepBGCAnnotator, ProdigalProteinRecordAnnotator
