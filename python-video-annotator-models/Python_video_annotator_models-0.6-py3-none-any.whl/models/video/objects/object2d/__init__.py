@@ -1,0 +1,2 @@
+from pythonvideoannotator_models.models.video.objects.object2d.object2d_io			import Object2dIO as Object2D
+from pythonvideoannotator_models.models.video.objects.object2d.utils.interpolation 	import interpolate_positions

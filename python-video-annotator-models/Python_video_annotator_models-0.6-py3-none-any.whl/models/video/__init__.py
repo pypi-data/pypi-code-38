@@ -1,0 +1,1 @@
+from pythonvideoannotator_models.models.video.video_io import VideoIO as Video
