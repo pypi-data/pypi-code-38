@@ -1,0 +1,114 @@
+# Copyright 2018 Streamlit Inc. All rights reserved.
+
+"""Logging module."""
+
+# Python 2/3 compatibility
+from __future__ import print_function, division, unicode_literals, absolute_import
+from streamlit.compatibility import setup_2_3_shims
+setup_2_3_shims(globals())
+
+import inspect
+import logging
+import sys
+import time
+
+from streamlit import development
+
+# Loggers for each name are saved here.
+LOGGERS = dict()
+
+# The global log level is set here across all names.
+LOG_LEVEL = logging.INFO
+
+
+def set_log_level(level):
+    """Set log level."""
+    logger = get_logger(__name__)
+
+    if isinstance(level, str):
+        level = level.upper()
+    if level == 'CRITICAL' or level == logging.CRITICAL:
+        log_level = logging.CRITICAL
+    elif level == 'ERROR' or level == logging.ERROR:
+        log_level = logging.ERROR
+    elif level == 'WARNING' or level == logging.WARNING:
+        log_level = logging.WARNING
+    elif level == 'INFO' or level == logging.INFO:
+        log_level = logging.INFO
+    elif level == 'DEBUG' or level == logging.DEBUG:
+        log_level = logging.DEBUG
+    else:
+        msg = 'undefined log level "%s"' % level
+        logger.critical(msg)
+        sys.exit(1)
+
+    for log in LOGGERS.values():
+        log.setLevel(log_level)
+
+    global LOG_LEVEL
+    LOG_LEVEL = log_level
+
+
+def setup_formatter(logger):
+    """Set up the console formatter for a given logger."""
+    # Deregister any previous console loggers.
+    if hasattr(logger, 'streamlit_console_handler'):
+        logger.removeHandler(logger.streamlit_console_handler)
+
+    logger.streamlit_console_handler = logging.StreamHandler()
+
+    if development.is_development_mode:
+        logging.Formatter.converter = time.gmtime
+        formatter = logging.Formatter(
+            fmt=(
+                '%(asctime)s.%(msecs)03d %(levelname) -7s '
+                '%(name)s: %(message)s'),
+            datefmt='%Y-%m-%dT%H:%M:%SZ')
+        logger.streamlit_console_handler.setFormatter(formatter)
+
+    # Register the new console logger.
+    logger.addHandler(logger.streamlit_console_handler)
+
+
+def init_tornado_logs():
+    """Initialize tornado logs."""
+    global LOGGER
+
+    # http://www.tornadoweb.org/en/stable/log.html
+    logs = ['access', 'application', 'general']
+    for log in logs:
+        name = 'tornado.%s' % log
+        get_logger(name)
+
+    logger = get_logger(__name__)
+    logger.debug('Initialized tornado logs')
+
+
+def get_logger(name):
+    """Return a logger.
+
+    Parameters
+    ----------
+    name : str
+        The name of the logger to use. You should just pass in __name__.
+
+    Returns
+    -------
+    Logger
+
+    """
+    if name in LOGGERS.keys():
+        return LOGGERS[name]
+
+    if name == 'root':
+        logger = logging.getLogger()
+    else:
+        logger = logging.getLogger(name)
+
+    logger.setLevel(LOG_LEVEL)
+    logger.propagate = False
+    setup_formatter(logger)
+
+    LOGGERS[name] = logger
+
+    return logger
