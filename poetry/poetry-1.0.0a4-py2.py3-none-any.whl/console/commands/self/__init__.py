@@ -1,0 +1,1 @@
+from .self import SelfCommand
