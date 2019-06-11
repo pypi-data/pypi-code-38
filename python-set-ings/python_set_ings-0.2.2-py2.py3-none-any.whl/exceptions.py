@@ -1,0 +1,3 @@
+
+class SettingsError(Exception):
+    pass
