@@ -1,0 +1,1 @@
+from .googletranslator import *
