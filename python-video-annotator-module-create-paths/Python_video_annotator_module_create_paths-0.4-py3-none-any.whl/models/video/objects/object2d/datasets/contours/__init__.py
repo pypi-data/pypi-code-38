@@ -1,0 +1,1 @@
+from pythonvideoannotator_module_createpaths.models.video.objects.object2d.datasets.contours.createpaths_contours import CreatePathsContours as Contours
