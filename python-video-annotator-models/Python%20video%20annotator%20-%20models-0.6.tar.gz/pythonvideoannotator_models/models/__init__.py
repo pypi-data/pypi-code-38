@@ -1,0 +1,1 @@
+from pythonvideoannotator_models.models.project_io import ProjectIO as Project

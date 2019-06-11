@@ -1,0 +1,1 @@
+from pythonvideoannotator_models.models.video.objects.note.note_io import NoteIO as Note

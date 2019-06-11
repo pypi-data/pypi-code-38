@@ -1,0 +1,1 @@
+from pythonvideoannotator_models.models.video.objects.object2d.datasets.path.path_io import PathIO as Path

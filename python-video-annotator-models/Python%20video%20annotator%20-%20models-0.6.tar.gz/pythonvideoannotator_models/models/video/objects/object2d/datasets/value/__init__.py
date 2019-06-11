@@ -1,0 +1,1 @@
+from pythonvideoannotator_models.models.video.objects.object2d.datasets.value.value_io import ValueIO as Value
