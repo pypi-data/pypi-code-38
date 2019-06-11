@@ -1,0 +1,307 @@
+from io import open
+
+import subprocess
+from subprocess import call
+import os
+import shutil
+import time
+import pickle
+
+from django.utils.six.moves.urllib.parse import urljoin
+from django.core.management.base import BaseCommand
+from django.contrib.staticfiles import finders
+from django.conf import settings
+from django.templatetags.static import PrefixNode
+from django.apps import apps
+
+from .npm_install import install_npm
+from npm_mjs import signals
+
+if settings.PROJECT_PATH:
+    PROJECT_PATH = settings.PROJECT_PATH
+else:
+    PROJECT_PATH = "./"
+
+# Run this script every time you update an *.mjs file or any of the
+# modules it loads.
+
+TRANSPILE_CACHE_PATH = os.path.join(PROJECT_PATH, ".transpile/")
+
+TRANSPILE_TIME_PATH = os.path.join(
+    TRANSPILE_CACHE_PATH,
+    "time"
+)
+
+LAST_RUN = {
+    'version': 0
+}
+
+try:
+    with open(
+        TRANSPILE_TIME_PATH,
+        'rb'
+    ) as f:
+        LAST_RUN['version'] = pickle.load(f)
+except EOFError:
+    pass
+except IOError:
+    pass
+
+WEBPACK_CONFIG_JS_PATH = os.path.join(
+    TRANSPILE_CACHE_PATH,
+    "webpack.config.js"
+)
+
+OLD_WEBPACK_CONFIG_JS = ''
+
+try:
+    with open(WEBPACK_CONFIG_JS_PATH, 'r') as file:
+        OLD_WEBPACK_CONFIG_JS = file.read()
+except IOError:
+    pass
+
+
+class Command(BaseCommand):
+    help = ('Transpile ES2015+ JavaScript to ES5 JavaScript + include NPM '
+            'dependencies')
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            dest='force',
+            default=False,
+            help='Force transpile even if no change is detected.',
+        )
+
+    def handle(self, *args, **options):
+        global LAST_RUN
+        if options["force"]:
+            force = True
+        else:
+            force = False
+        start = int(round(time.time()))
+        npm_install = install_npm()
+        self.stdout.write("Transpiling...")
+        js_paths = finders.find('js/', True)
+        # Remove paths inside of collection dir
+        js_paths = [
+            x for x in js_paths if not x.startswith(settings.STATIC_ROOT)
+        ]
+
+        transpile_path = os.path.join(
+            PROJECT_PATH,
+            "static-transpile"
+        )
+
+        if os.path.exists(transpile_path):
+            files = []
+            for js_path in js_paths:
+                for root, dirnames, filenames in os.walk(js_path):
+                    for filename in filenames:
+                        files.append(os.path.join(root, filename))
+            newest_file = max(
+                files,
+                key=os.path.getmtime
+            )
+            if (
+                os.path.commonprefix(
+                    [newest_file, transpile_path]
+                ) == transpile_path and
+                not npm_install and
+                not force
+            ):
+                # Transpile not needed as nothing has changed and not forced
+                return
+            # Remove any previously created static output dirs
+            shutil.rmtree(transpile_path)
+        LAST_RUN['version'] = start
+        if not os.path.exists(TRANSPILE_CACHE_PATH):
+            os.makedirs(TRANSPILE_CACHE_PATH)
+        with open(
+            TRANSPILE_TIME_PATH,
+            'wb'
+        ) as f:
+            pickle.dump(LAST_RUN['version'], f)
+        # Create a static output dir
+        out_dir = os.path.join(transpile_path, "js/transpile/")
+        os.makedirs(out_dir)
+        with open(os.path.join(transpile_path, "README.txt"), 'w') as f:
+            f.write(
+                (
+                    'These files have been automatically generated. '
+                    'DO NOT EDIT THEM! \n Changes will be overwritten. Edit '
+                    'the original files in one of the django apps, and run '
+                    './manage.py transpile.'
+                )
+            )
+
+        mainfiles = []
+        sourcefiles = []
+        lib_sourcefiles = []
+        for path in js_paths:
+            for mainfile in subprocess.check_output(
+                ["find", path, "-type", "f", "-name", "*.mjs", "-print"]
+            ).decode('utf-8').split("\n")[:-1]:
+                mainfiles.append(mainfile)
+            for sourcefile in subprocess.check_output(
+                ["find", path, "-type", "f", "-wholename", "*js"]
+            ).decode('utf-8').split("\n")[:-1]:
+                if 'static/js' in sourcefile:
+                    sourcefiles.append(sourcefile)
+                if 'static-libs/js' in sourcefile:
+                    lib_sourcefiles.append(sourcefile)
+        # Collect all JavaScript in a temporary dir (similar to
+        # ./manage.py collectstatic).
+        # This allows for the modules to import from oneanother, across Django
+        # Apps.
+
+        cache_path = os.path.join(TRANSPILE_CACHE_PATH, "js/")
+        if not os.path.exists(cache_path):
+            os.makedirs(cache_path)
+        # Note all cache files so that we can remove outdated files that no
+        # longer are in the prject.
+        cache_files = []
+        # Note all plugin dirs and the modules inside of them to crate index.js
+        # files inside of them.
+        plugin_dirs = {}
+        for sourcefile in sourcefiles:
+            relative_path = sourcefile.split('static/js/')[1]
+            outfile = os.path.join(cache_path, relative_path)
+            cache_files.append(outfile)
+            dirname = os.path.dirname(outfile)
+            if not os.path.exists(dirname):
+                os.makedirs(dirname)
+                shutil.copyfile(sourcefile, outfile)
+            elif not os.path.isfile(outfile):
+                shutil.copyfile(sourcefile, outfile)
+            elif os.path.getmtime(outfile) < os.path.getmtime(sourcefile):
+                shutil.copyfile(sourcefile, outfile)
+            # Check for plugin connectors
+            if relative_path[:8] == 'plugins/':
+                if dirname not in plugin_dirs:
+                    plugin_dirs[dirname] = []
+                module_name = os.path.splitext(
+                    os.path.basename(relative_path)
+                )[0]
+                if (
+                    module_name != 'init' and
+                    module_name not in plugin_dirs[dirname]
+                ):
+                    plugin_dirs[dirname].append(module_name)
+
+        for sourcefile in lib_sourcefiles:
+            relative_path = sourcefile.split('static-libs/js/')[1]
+            outfile = os.path.join(cache_path, relative_path)
+            cache_files.append(outfile)
+            dirname = os.path.dirname(outfile)
+            if not os.path.exists(dirname):
+                os.makedirs(dirname)
+                shutil.copyfile(sourcefile, outfile)
+            elif not os.path.isfile(outfile):
+                shutil.copyfile(sourcefile, outfile)
+            elif os.path.getmtime(outfile) < os.path.getmtime(sourcefile):
+                shutil.copyfile(sourcefile, outfile)
+
+        # Write an index.js file for every plugin dir
+        for plugin_dir in plugin_dirs:
+            index_js = ""
+            for module_name in plugin_dirs[plugin_dir]:
+                index_js += 'export * from "./%s"\n' % module_name
+            outfile = os.path.join(plugin_dir, 'index.js')
+            cache_files.append(outfile)
+            if not os.path.isfile(outfile):
+                index_file = open(outfile, 'w')
+                index_file.write(index_js)
+                index_file.close()
+            else:
+                index_file = open(outfile, 'r')
+                old_index_js = index_file.read()
+                index_file.close()
+                if old_index_js != index_js:
+                    index_file = open(outfile, 'w')
+                    index_file.write(index_js)
+                    index_file.close()
+
+        # Check for outdated files that should be removed
+        for existing_file in subprocess.check_output(
+            ["find", cache_path, "-type", "f"]
+        ).decode('utf-8').split("\n")[:-1]:
+            if existing_file not in cache_files:
+                self.stdout.write("Removing %s" % existing_file)
+                os.remove(existing_file)
+        if apps.is_installed('django.contrib.staticfiles'):
+            from django.contrib.staticfiles.storage import staticfiles_storage
+            static_base_url = staticfiles_storage.base_url
+        else:
+            static_base_url = PrefixNode.handle_simple("STATIC_URL")
+        transpile_base_url = urljoin(static_base_url, 'js/transpile/')
+
+        webpack_config_js = 'var webpack = require("webpack");'
+        webpack_config_js += 'module.exports = {\n'
+        if settings.DEBUG:
+            mode = 'development'
+        else:
+            mode = 'production'
+        webpack_config_js += ' mode: "{}",\n'.format(mode)
+        webpack_config_js += ' module: {\n'
+        webpack_config_js += '  rules: [\n'
+        webpack_config_js += '   {\n'
+        webpack_config_js += '    test: /\\.(js|mjs)$/,\n'
+        if settings.DEBUG:
+            webpack_config_js += '    exclude: /node_modules/,\n'
+        webpack_config_js += '    use: {\n'
+        webpack_config_js += '     loader: "babel-loader",\n'
+        webpack_config_js += '     options: {\n'
+        webpack_config_js += '      presets: [\n'
+        webpack_config_js += '       "@babel/preset-env"\n'
+        webpack_config_js += '      ],\n'
+        webpack_config_js += '      plugins: [\n'
+        webpack_config_js += '       "@babel/plugin-syntax-dynamic-import"\n'
+        webpack_config_js += '      ]\n'
+        webpack_config_js += '     }\n'
+        webpack_config_js += '    }\n'
+        webpack_config_js += '   }\n'
+        webpack_config_js += '  ]\n'
+        webpack_config_js += ' },\n'
+        webpack_config_js += ' output: {\n'
+        webpack_config_js += '  path: "{}",\n'.format(out_dir)
+        webpack_config_js += '  chunkFilename: "{}-[id].js",\n'.format(
+            LAST_RUN['version']
+        )
+        webpack_config_js += '  publicPath: "{}",\n'.format(
+            transpile_base_url
+        )
+        webpack_config_js += ' },\n'
+        webpack_config_js += ' plugins: [\n'
+        webpack_config_js += '  new webpack.DefinePlugin({'
+        webpack_config_js += '   "process.env.TRANSPILE_VERSION": process.env.TRANSPILE_VERSION\n'
+        webpack_config_js += '  })'
+        webpack_config_js += ' ],\n'
+        webpack_config_js += ' entry: {\n'
+        for mainfile in mainfiles:
+            basename = os.path.basename(mainfile)
+            modulename = basename.split('.')[0]
+            file_path = os.path.join(cache_path, basename)
+            webpack_config_js += '  {}: "{}",\n'.format(
+                modulename,
+                file_path
+            )
+        webpack_config_js += ' }\n'
+        webpack_config_js += '}\n'
+
+        if webpack_config_js is not OLD_WEBPACK_CONFIG_JS:
+            with open(WEBPACK_CONFIG_JS_PATH, 'w') as f:
+                f.write(webpack_config_js)
+        env = os.environ.copy()
+        env['TRANSPILE_VERSION'] = str(LAST_RUN['version'])
+        call(
+            ['./node_modules/.bin/webpack'],
+            cwd=TRANSPILE_CACHE_PATH,
+            env=env
+        )
+        end = int(round(time.time()))
+        self.stdout.write(
+            "Time spent transpiling: " + str(end - start) + " seconds"
+        )
+        signals.post_transpile.send(sender=None)
