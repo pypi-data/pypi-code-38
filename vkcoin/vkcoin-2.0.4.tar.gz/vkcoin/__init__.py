@@ -1,0 +1,1 @@
+from .vkcoin import *
