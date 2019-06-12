@@ -1,0 +1,6 @@
+HOST_URL = "vm-hadik3r-05.cs.uni-paderborn.de"
+USERNAME = "t3"
+PASSWORD = "t3"
+VIMACCOUNTID = "74cc0796-8912-459c-9a59-4a272de5ffa3"
+NSDESCRIPTION = "Demo Instantiation Adaptor"
+NSNAME = "Demo-Instantiation"
