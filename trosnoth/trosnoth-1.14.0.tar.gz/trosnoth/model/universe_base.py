@@ -1,0 +1,3 @@
+NEUTRAL_TEAM_ID = b'\x00'
+NO_PLAYER = b'\x00'
+NO_SHOT = 0
