@@ -1,0 +1,17 @@
+def get_definition():
+    return ['id',
+            'type',
+            'startTime',
+            'endTime',
+            'duration',
+            'success',
+            'failure',
+            'parent',
+            'next',
+            'previous',
+            'object_acted_on',
+            'object_type',
+            'bodyPartsUsed',
+            'arm',
+            'grasp',
+            'effort']
