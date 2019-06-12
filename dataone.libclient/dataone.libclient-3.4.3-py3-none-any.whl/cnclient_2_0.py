@@ -1,0 +1,176 @@
+#!/usr/bin/env python
+
+# This work was created by participants in the DataONE project, and is
+# jointly copyrighted by participating institutions in DataONE. For
+# more information on DataONE, see our web site at http://dataone.org.
+#
+#   Copyright 2009-2019 DataONE
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import logging
+
+import d1_common.type_conversions
+
+import d1_client.baseclient_2_0
+import d1_client.cnclient_1_2
+
+
+class CoordinatingNodeClient_2_0(
+    d1_client.baseclient_2_0.DataONEBaseClient_2_0,
+    d1_client.cnclient_1_2.CoordinatingNodeClient_1_2,
+):
+    """Extend DataONEBaseClient_2_0 and CoordinatingNodeClient_1_2 with functionality
+    for Coordinating nodes that was added in v2.0 of the DataONE infrastructure.
+
+    Updated in v2:
+
+    - CNCore.listFormats() → ObjectFormatList
+    - CNRead.listObjects(session[, fromDate][, toDate][, formatId]
+    - MNRead.listObjects(session[, fromDate][, toDate][, formatId]
+
+    The base implementations of listFormats() and listObjects() handle v2 when
+    called through this class.
+
+    https://releases.dataone.org/online/api-documentation-v2.0/apis/CN_APIs.html
+
+    """
+
+    def __init__(self, *args, **kwargs):
+        """See baseclient.DataONEBaseClient for args."""
+        super(CoordinatingNodeClient_2_0, self).__init__(*args, **kwargs)
+
+        self._log = logging.getLogger(__name__)
+
+        self._api_major = 2
+        self._api_minor = 0
+        self._pyxb_binding = d1_common.type_conversions.get_pyxb_binding_by_api_version(
+            self._api_major, self._api_minor
+        )
+
+    # =========================================================================
+    # Core API
+    # =========================================================================
+
+    def deleteResponse(self, pid):
+        """CNCore.delete(session, id) → Identifier DELETE /object/{id}
+
+        Args:
+          pid:
+
+        Returns:
+
+        """
+        return self.DELETE(["object", pid])
+
+    def delete(self, pid):
+        """See Also: deleteResponse()
+
+        Args:
+          pid:
+
+        Returns:
+
+        """
+        response = self.deleteResponse(pid)
+        return self._read_dataone_type_response(response, "Identifier")
+
+    # =========================================================================
+    # CNRead
+    # =========================================================================
+
+    def synchronizeResponse(self, pid, vendorSpecific=None):
+        """CNRead.synchronize(session, pid) → boolean POST /synchronize.
+
+        Args:   pid:   vendorSpecific:
+
+        """
+        mmp_dict = {"pid": pid}
+        return self.POST(["synchronize"], fields=mmp_dict, headers=vendorSpecific)
+
+    def synchronize(self, pid, vendorSpecific=None):
+        """See Also: synchronizeResponse() Args: pid: vendorSpecific:
+
+        Returns:
+
+        """
+        response = self.synchronizeResponse(pid, vendorSpecific)
+        return self._read_boolean_response(response)
+
+    # =========================================================================
+    # CNView
+    # =========================================================================
+
+    # CNView.view(session, theme, id) → OctetStream
+    # GET /views/{theme}/{id}
+
+    def viewResponse(self, theme, did, vendorSpecific=None):
+        return self.GET(["views", theme, did], headers=vendorSpecific)
+
+    def view(self, theme, did):
+        response = self.viewResponse(theme, did)
+        return self._read_stream_response(response)
+
+    # CNView.listViews(session) → OptionList
+    # GET /views
+
+    def listViewsResponse(self, vendorSpecific=None):
+        return self.GET(["views"], headers=vendorSpecific)
+
+    def listViews(self):
+        response = self.listViewsResponse()
+        return self._read_dataone_type_response(response, "OptionList")
+
+    # =========================================================================
+    # CNDiagnostic
+    # =========================================================================
+
+    # CNDiagnostic.echoCredentials(session) → SubjectInfo
+    # GET /diag/subject
+
+    def echoCredentialsResponse(self, vendorSpecific=None):
+        return self.GET(["diag", "subject"], headers=vendorSpecific)
+
+    def echoCredentials(self, vendorSpecific=None):
+        response = self.echoCredentialsResponse(vendorSpecific)
+        return self._read_dataone_type_response(response, "SubjectInfo")
+
+    # CNDiagnostic.echoSystemMetadata(session, sysmeta) → SystemMetadata
+    # POST /diag/sysmeta
+
+    def echoSystemMetadataResponse(self, sysmeta_pyxb, vendorSpecific=None):
+        mmp_dict = {"sysmeta": ("sysmeta.xml", sysmeta_pyxb.toxml("utf-8"))}
+        return self.POST(["diag", "sysmeta"], fields=mmp_dict, headers=vendorSpecific)
+
+    def echoSystemMetadata(self, sysmeta_pyxb, vendorSpecific=None):
+        response = self.echoSystemMetadataResponse(sysmeta_pyxb, vendorSpecific)
+        return self._read_dataone_type_response(response, "SystemMetadata")
+
+    # CNDiagnostic.echoIndexedObject(session, queryEngine, sysmeta, object) → OctetStream
+    # POST /diag/object
+
+    def echoIndexedObjectResponse(
+        self, queryEngine, sysmeta_pyxb, obj, vendorSpecific=None
+    ):
+        mmp_dict = {
+            "queryEngine": queryEngine.encode("utf-8"),
+            "object": ("content.bin", obj),
+            "sysmeta": ("sysmeta.xml", sysmeta_pyxb.toxml("utf-8")),
+        }
+        return self.POST(["diag", "object"], fields=mmp_dict, headers=vendorSpecific)
+
+    def echoIndexedObject(self, queryEngine, sysmeta_pyxb, obj, vendorSpecific=None):
+        response = self.echoIndexedObjectResponse(
+            queryEngine, sysmeta_pyxb, obj, vendorSpecific
+        )
+        return self._read_stream_response(response)
