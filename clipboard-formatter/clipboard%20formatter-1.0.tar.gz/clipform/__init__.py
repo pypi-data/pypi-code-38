@@ -1,0 +1,1 @@
+from .clipform import ClipboardSQLFormatter
