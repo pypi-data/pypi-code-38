@@ -1,0 +1,1 @@
+from .viacep import viacep
