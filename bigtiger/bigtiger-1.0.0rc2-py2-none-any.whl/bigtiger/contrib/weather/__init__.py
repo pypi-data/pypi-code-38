@@ -1,0 +1,1 @@
+default_app_config = 'bigtiger.contrib.weather.apps.WeatherConfig'
