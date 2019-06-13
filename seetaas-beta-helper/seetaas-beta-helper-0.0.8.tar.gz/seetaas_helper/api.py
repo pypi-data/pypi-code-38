@@ -1,0 +1,154 @@
+from seetaas_helper.config import get_metric_api, get_dataset_api, get_metric_token, get_dataset_token
+import requests
+import logging
+from requests.adapters import HTTPAdapter
+
+logger = logging.getLogger("seetaas-helper")
+
+session = requests.Session()
+session.mount('http://', HTTPAdapter(max_retries=3))
+session.mount('https://', HTTPAdapter(max_retries=3))
+
+PLOT_LINE = 'line'
+
+
+class MetricFigure:
+    def __init__(self, title, y1_name, y1_type=PLOT_LINE, y2_name=None, y2_type=None):
+        """
+        :param title:      图表的名称(最多两个纵轴)
+        :param y1_name:    metric纵轴1名称, 如 Accuracy
+        :param y1_type:    metric纵轴1类型, 如 PLOT_LINE为折线图
+        :param y2_name:    metric纵轴2名称, 如 Softmax_Loss
+        :param y2_type:    metric纵轴2类型, 如 PLOT_LINE为折线图
+        """
+        self.metric_api = get_metric_api()
+        self.token = get_metric_token()
+        self.y1_name = y1_name
+        self.y2_name = y2_name
+        self.title = title
+        if len(self.metric_api) == 0 or len(self.token) == 0:
+            raise Exception("You should run your algorithm inner SeeTaaS or AutoDL platform")
+        if not isinstance(title, str) and len(title) == 0:
+            raise ValueError("title must be string")
+        if not isinstance(y1_name, str) and len(y1_name) == 0:
+            raise ValueError("y1 must be string")
+        if y1_type not in (PLOT_LINE,):
+            raise KeyError("y1_type not exists")
+        series = [{
+            "type": y1_type,
+            "name": y1_name,
+            "data": []
+        }]
+        if y2_name:
+            if not isinstance(y2_name, str) and len(y2_name) == 0:
+                raise ValueError("y2 must be string")
+            if y2_type not in (PLOT_LINE,):
+                raise KeyError("y2_type not exists")
+            series.append({
+                "type": y2_type,
+                "name": y2_name,
+                "data": []
+            })
+        items = [
+            {
+                "subject": "subjects",
+                "value": {
+                    "title": {
+                        "text": title
+                    },
+                    "xAxis": {
+                        "type": 'value'
+                    },
+                    "yAxis": {
+                        "type": 'value'
+                    },
+                    "series": series
+                }
+            }
+        ]
+        self._send(items)
+
+    def push_metric(self, x, y1, y2=None):
+        """
+        :param x:   横坐标，一般为迭代次数
+        :param y1:  x对应的y1的值
+        :param y2:  x对应的y2的值
+        :return:
+        """
+        items = [{
+            "subject": self.title,
+            "value": {
+                "name": self.y1_name,
+                "x": x,
+                "y": y1
+            }
+        }]
+        if y2 and self.y2_name:
+            items.append({
+                "subject": self.title,
+                "value": {
+                    "name": self.y2_name,
+                    "x": x,
+                    "y": y2
+                }
+            })
+        self._send(items)
+
+    def _send(self, items):
+        try:
+            resp = session.post('{}/uploadTaskMetrics'.format(self.metric_api),
+                                json={
+                                    "token": self.token,
+                                    "items": items,
+                                },
+                                timeout=5)
+            if resp.status_code != 200:
+                logger.error("send metrics http code: {}".format(resp.status_code))
+        except requests.RequestException as e:
+            logger.error('Could not reach metric api. detail: {}'.format(e))
+
+
+# def send_metrics(**metrics):
+#     metric_api = get_metric_api()
+#     try:
+#         resp = session.post('{}/uploadTaskMetrics'.format(metric_api),
+#                             json={
+#                                 "token": get_metric_token(),
+#                                 "items": [
+#                                     {"subject": k, "value": v} for k, v in metrics.items()
+#                                 ]
+#                             },
+#                             timeout=5)
+#         if resp.status_code != 200:
+#             logger.error("send metrics http code: {}".format(resp.status_code))
+#     except requests.RequestException as e:
+#         logger.error('Could not reach metric api. detail: {}'.format(e))
+
+
+def send_data_attribute(output_index=1, **attr):
+    dataset_api = get_dataset_api()
+    for k, v in attr.items():
+        try:
+            resp = session.post('{}/uploadTaskMetrics'.format(dataset_api),
+                                json={
+                                    "token": get_dataset_token(),
+                                    "output": str(output_index),
+                                    "name": k,
+                                    "value": v
+                                },
+                                timeout=5)
+            if resp.status_code != 200:
+                logger.error("send data attribute http code: {}".format(resp.status_code))
+        except requests.RequestException as e:
+            logger.error('Could not reach dataset api. detail: {}'.format(e))
+
+
+# if __name__ == '__main__':
+#     figure = MetricFigure("loss&acc", "loss", PLOT_LINE, "acc", PLOT_LINE)
+#     import time
+#     import random
+#     while True:
+#         for i in range(10):
+#             print("##################")
+#             figure.push_metric(i, random.randint(1, 10), random.randint(5, 15))
+#         time.sleep(60)
