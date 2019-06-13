@@ -1,0 +1,106 @@
+import logging
+import typeguard
+
+from typing import List, Optional
+
+from parsl.utils import RepresentationMixin
+from parsl.executors.base import ParslExecutor
+from parsl.executors.threads import ThreadPoolExecutor
+from parsl.dataflow.error import ConfigurationError
+from parsl.monitoring import MonitoringHub
+
+logger = logging.getLogger(__name__)
+
+
+class Config(RepresentationMixin):
+    """
+    Specification of Parsl configuration options.
+
+    Parameters
+    ----------
+    executors : list of ParslExecutor, optional
+        List of executor instances to use. Possible executors include :class:`~parsl.executors.threads.ThreadPoolExecutor`,
+        :class:`~parsl.executors.ipp.IPyParallelExecutor`, or :class:`~parsl.executors.swift_t.TurbineExecutor`. Default
+        is [:class:`~parsl.executors.threads.ThreadPoolExecutor()`].
+    app_cache : bool, optional
+        Enable app caching. Default is True.
+    checkpoint_files : list of str, optional
+        List of paths to checkpoint files. Default is None.
+    checkpoint_mode : str, optional
+        Checkpoint mode to use, can be 'dfk_exit', 'task_exit', or 'periodic'. If set to
+        `None`, checkpointing will be disabled. Default is None.
+    checkpoint_period : str, optional
+        Time interval (in "HH:MM:SS") at which to checkpoint completed tasks. Only has an effect if
+        `checkpoint_mode='periodic'`.
+    data_management_max_threads : int, optional
+        Maximum number of threads to allocate for the data manager to use for managing input and output transfers.
+        Default is 10.
+    monitoring : MonitoringHub, optional
+        The config to use for database monitoring. Default is None which does not log to a database.
+    lazy_errors : bool, optional
+        If True, errors from task failures will not be raised until `future.result()` is called. Otherwise, they will
+        be raised as soon as the task returns. Default is True.
+    retries : int, optional
+        Set the number of retries in case of failure. Default is 0.
+    run_dir : str, optional
+        Path to run directory. Default is 'runinfo'.
+    strategy : str, optional
+        Strategy to use for scaling resources according to workflow needs. Can be 'simple' or `None`. If `None`, dynamic
+        scaling will be disabled. Default is 'simple'.
+    usage_tracking : bool, optional
+        Set this field to True to opt-in to Parsl's usage tracking system. Parsl only collects minimal, non personally-identifiable,
+        information used for reporting to our funding agencies. Default is False.
+    """
+
+    @typeguard.typechecked
+    def __init__(self,
+                 executors: Optional[List[ParslExecutor]] = None,
+                 app_cache: bool = True,
+                 checkpoint_files: Optional[List[str]] = None,
+                 checkpoint_mode: Optional[str] = None,
+                 checkpoint_period: Optional[str] = None,
+                 data_management_max_threads: int = 10,
+                 lazy_errors: bool = True,
+                 retries: int = 0,
+                 run_dir: str = 'runinfo',
+                 strategy: Optional[str] = 'simple',
+                 monitoring: Optional[MonitoringHub] = None,
+                 usage_tracking: bool = False):
+        if executors is None:
+            executors = [ThreadPoolExecutor()]
+        self.executors = executors
+        self.app_cache = app_cache
+        self.checkpoint_files = checkpoint_files
+        self.checkpoint_mode = checkpoint_mode
+        if checkpoint_period is not None:
+            if checkpoint_mode is None:
+                logger.debug('The requested `checkpoint_period={}` will have no effect because `checkpoint_mode=None`'.format(
+                    checkpoint_period)
+                )
+            elif checkpoint_mode != 'periodic':
+                logger.debug("Requested checkpoint period of {} only has an effect with checkpoint_mode='periodic'".format(
+                    checkpoint_period)
+                )
+        if checkpoint_mode == 'periodic' and checkpoint_period is None:
+            checkpoint_period = "00:30:00"
+        self.checkpoint_period = checkpoint_period
+        self.data_management_max_threads = data_management_max_threads
+        self.lazy_errors = lazy_errors
+        self.retries = retries
+        self.run_dir = run_dir
+        self.strategy = strategy
+        self.usage_tracking = usage_tracking
+        self.monitoring = monitoring
+
+    @property
+    def executors(self):
+        return self._executors
+
+    @executors.setter
+    def executors(self, executors):
+        labels = [e.label for e in executors]
+        duplicates = [e for n, e in enumerate(labels) if e in labels[:n]]
+        if len(duplicates) > 0:
+            raise ConfigurationError('Executors must have unique labels ({})'.format(
+                ', '.join(['label={}'.format(repr(d)) for d in duplicates])))
+        self._executors = executors
