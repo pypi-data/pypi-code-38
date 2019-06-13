@@ -1,0 +1,1 @@
+from kipoi_utils.external.related.fields import * # backward comp

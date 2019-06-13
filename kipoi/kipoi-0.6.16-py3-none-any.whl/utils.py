@@ -1,0 +1,1 @@
+from kipoi_utils.utils import *  # backward compatibility
