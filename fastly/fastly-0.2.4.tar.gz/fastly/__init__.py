@@ -1,0 +1,1 @@
+from .fastly import *
