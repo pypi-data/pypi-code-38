@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+
+from setuptools import setup
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+setup(
+    name="iap",
+    version="2.2.3",
+    description="Python utilities for working with Apple In-App Purchases (IAP)",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    license="MIT",
+    keywords="iap appstore django",
+    author="Educreations Engineering",
+    author_email="engineering@educreations.com",
+    url="https://github.com/educreations/python-iap",
+    classifiers=[
+        "Programming Language :: Python :: 2",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    packages=["iap"],
+    package_dir={"iap": "iap"},
+    install_requires=[
+        "Django>=1.7",
+        "pyopenssl>=17.0.0",
+        "pyasn1",
+        "pyasn1_modules",
+        "requests",
+    ],
+    extras_require={"test": ["pytest", "pytest-django", "responses"]},
+    tests_require=["iap[test]"],
+)
