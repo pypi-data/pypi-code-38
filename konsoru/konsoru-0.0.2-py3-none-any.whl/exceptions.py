@@ -1,0 +1,2 @@
+class NonCriticalCLIException(Exception):
+    pass
