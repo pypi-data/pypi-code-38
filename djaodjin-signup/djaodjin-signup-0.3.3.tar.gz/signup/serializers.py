@@ -1,0 +1,251 @@
+# Copyright (c) 2019, DjaoDjin inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+from django.core import validators
+from django.contrib.auth import get_user_model
+from django.utils.translation import ugettext_lazy as _
+from rest_framework import serializers
+
+from .models import Activity, Contact, Notification
+from .utils import get_account_model, has_invalid_password
+
+
+class NoModelSerializer(serializers.Serializer):
+
+    def create(self, validated_data):
+        raise RuntimeError('`create()` should not be called.')
+
+    def update(self, instance, validated_data):
+        raise RuntimeError('`update()` should not be called.')
+
+
+class ActivitySerializer(serializers.ModelSerializer):
+
+    account = serializers.SlugRelatedField(
+        slug_field='slug', queryset=get_account_model().objects.all(),
+        help_text=_("Account the activity is associated to"))
+    created_by = serializers.SlugRelatedField(
+        read_only=True, slug_field='username',
+        help_text=_("User that created the activity"))
+
+    class Meta:
+        #pylint:disable=old-style-class,no-init
+        model = Activity
+        fields = ('created_at', 'created_by', 'text', 'account')
+        read_only_fields = ('created_at', 'created_by')
+
+
+class APIKeysSerializer(NoModelSerializer):
+    """
+    username and password for authentication through API.
+    """
+    secret = serializers.CharField(max_length=128, read_only=True,
+        help_text=_("Secret API Key used to authenticate user on every HTTP"\
+        " request"))
+    password = serializers.CharField(max_length=128, write_only=True,
+        help_text=_("Password of the user making the HTTP request"))
+
+    class Meta:
+        #pylint:disable=old-style-class,no-init
+        fields = ('secret', 'password')
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    """
+    This serializer is used in lists and other places where a Contact/User
+    profile is referenced.
+    For a detailed profile, see `ContactDetailSerializer`.
+    """
+    credentials = serializers.SerializerMethodField(read_only=True,
+        help_text=_("True if the user has valid login credentials"))
+
+    class Meta:
+        #pylint:disable=old-style-class,no-init
+        model = Contact
+        fields = ('slug', 'printable_name', 'picture', 'email', 'created_at',
+            'credentials',)
+        read_only_fields = ('slug', 'printable_name', 'created_at',
+            'credentials',)
+
+    @staticmethod
+    def get_credentials(obj):
+        return (not has_invalid_password(obj.user)) if obj.user else False
+
+
+class ContactDetailSerializer(ContactSerializer):
+    """
+    This serializer is used in APIs where a single Contact/User
+    profile is returned.
+    For a summary profile, see `ContactSerializer`.
+    """
+    activities = ActivitySerializer(many=True, read_only=True)
+
+    class Meta(ContactSerializer.Meta):
+        fields = ContactSerializer.Meta.fields + ('full_name', 'nick_name',
+            'extra', 'activities',)
+        read_only_fields = ContactSerializer.Meta.read_only_fields + (
+            'activities',)
+
+
+class NotificationsSerializer(serializers.ModelSerializer):
+
+    notifications = serializers.SlugRelatedField(many=True,
+        slug_field='slug', queryset=Notification.objects.all())
+
+    class Meta:
+        #pylint:disable=old-style-class,no-init
+        model = get_user_model()
+        fields = ('notifications',)
+
+
+class CredentialsSerializer(NoModelSerializer):
+    """
+    username and password for authentication through API.
+    """
+    username = serializers.CharField(validators=[
+        validators.RegexValidator(r'^[\w.@+-]+$', _("Enter a valid username."),
+            'invalid')],
+        help_text=_("Username to identify the account"))
+    password = serializers.CharField(write_only=True,
+        style={'input_type': 'password'},
+        help_text=_("Secret password for the account"))
+    code = serializers.IntegerField(required=False, write_only=True,
+        style={'input_type': 'password'},
+        help_text=_("One-time code. This field will be checked against"\
+            " an expected code when multi-factor authentication (MFA)"\
+            " is enabled."))
+
+class CreateUserSerializer(serializers.ModelSerializer):
+    #pylint: disable=no-init,old-style-class
+
+    username = serializers.CharField(required=False,
+        help_text=_("Username to identify the account"))
+    password = serializers.CharField(required=False, write_only=True,
+        style={'input_type': 'password'}, help_text=_("Password with which"\
+            " a user can authenticate with the service"))
+    email = serializers.EmailField(
+        help_text=_("Primary e-mail to contact user"))
+    full_name = serializers.CharField(
+        help_text=_("Full name (effectively first name followed by last name)"))
+
+    class Meta:
+        model = get_user_model()
+        fields = ('username', 'password', 'email', 'full_name')
+
+
+class PasswordChangeSerializer(NoModelSerializer):
+
+    password = serializers.CharField(write_only=True,
+        style={'input_type': 'password'},
+        help_text=_("Password of the user making the HTTP request"))
+    new_password = serializers.CharField(write_only=True,
+        style={'input_type': 'password'},
+        help_text=_("New password for the user referenced in the URL"))
+
+
+class PasswordResetSerializer(serializers.Serializer):
+    """
+    Serializer to send an e-mail to a user in order to recover her account.
+    """
+    email = serializers.EmailField(
+        help_text=_("Primary e-mail to contact user"))
+
+
+class TokenSerializer(NoModelSerializer):
+    """
+    token to verify or refresh.
+    """
+    token = serializers.CharField(
+        help_text=_("Token used to authenticate user on every HTTP request"))
+
+
+class ValidationErrorSerializer(NoModelSerializer):
+    """
+    Details on why token is invalid.
+    """
+    detail = serializers.CharField(help_text=_("Describes the reason for"\
+        " the error in plain text"))
+
+
+class PublicKeySerializer(NoModelSerializer):
+
+    password = serializers.CharField(write_only=True,
+        style={'input_type': 'password'},
+        help_text=_("Password of the user making the HTTP request"))
+    pubkey = serializers.CharField(write_only=True, max_length=500,
+        style={'input_type': 'password'},
+        help_text=_("New public key for the user referenced in the URL"))
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    This serializer is a substitute for `ContactSerializer` whose intent is to
+    facilitate composition of this App with other Django Apps which references
+    a `django.contrib.auth.User model`. It is not used in this App.
+
+    XXX currently used in `api.auth.JWTBase` for payloads.
+    """
+    #pylint: disable=no-init,old-style-class
+
+    # Only way I found out to remove the ``UniqueValidator``. We are not
+    # interested to create new instances here.
+    slug = serializers.CharField(source='username', validators=[
+        validators.RegexValidator(r'^[\w.@+-]+$', _("Enter a valid username."),
+            'invalid')])
+    printable_name = serializers.CharField(source='get_full_name',
+        help_text=_("Full name"))
+    picture = serializers.SerializerMethodField(read_only=True,
+        help_text=_("Picture"))
+    email = serializers.EmailField(
+        help_text=_("Primary e-mail to contact user"))
+    created_at = serializers.DateTimeField(source='date_joined')
+    credentials = serializers.SerializerMethodField(read_only=True,
+        help_text=_("True if the user has valid login credentials"))
+    # XXX username and full_name are duplicates of slug and printable_name
+    # respectively. They are still included in this version for backward
+    # compatibility.
+    username = serializers.CharField(validators=[
+        validators.RegexValidator(r'^[\w.@+-]+$', _("Enter a valid username."),
+            'invalid')])
+    full_name = serializers.CharField(source='get_full_name',
+        help_text=_("Full name"))
+
+    class Meta:
+        model = get_user_model()
+        fields = ('slug', 'printable_name', 'picture', 'email', 'created_at',
+            'credentials', 'username', 'full_name')
+        read_only_fields = ('slug', 'printable_name', 'created_at',
+            'credentials',)
+
+    @staticmethod
+    def get_credentials(obj):
+        return not has_invalid_password(obj)
+
+    @staticmethod
+    def get_picture(obj):
+        try:
+            return obj.contact.picture
+        except Contact.DoesNotExist:
+            pass
+        return None
