@@ -1,0 +1,3 @@
+import ConsoleEngine.generateAutoCompletition as generateAutoCompletition
+
+generateAutoCompletition.generateAutoCompletition()
