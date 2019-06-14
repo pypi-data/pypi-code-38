@@ -1,0 +1,24 @@
+import setuptools
+
+VERSION=open('version.txt').read().strip()
+setuptools.setup(
+    name='pytest_mproc',
+    description="distributed pytest using multiprocessing",
+    long_description="pytest plugin for running tests in parallel using multiprocessor pkg",
+    author="John Rusnak",
+    author_email="jrusnak@linkedin.com",
+    version=VERSION,
+    package_dir={'': 'src'},
+    packages=setuptools.find_packages('src'),
+    entry_points={
+       "pytest11": ["name_of_plugin = pytest_mproc.plugin"],
+    },
+    classifiers=["Framework :: Pytest",
+                 "Development Status :: 4 - Beta",
+                 "License :: OSI Approved :: BSD License"],
+    license='BSD License',
+    keywrds='pytest distributed multiprocessing',
+    url='https://github.com/jrusnakli/pytest_mpdist',
+    download_url="https://github.com/jrusnakli/pytest_mpdist/dist/%s" % VERSION,
+    install_requires=["pytest"]
+)
