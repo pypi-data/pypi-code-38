@@ -1,0 +1,22 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+FUNKSTECKDOSE = "Funksteckdose"
+MAX_THERMOSTAT = "MAX! Thermostat"
+ZWAVE_SENSOR = "Z-Wave Sensor"
+ZWAVE_THERMOSTAT = "Z-Wave Thermostat"
+ZWAVE_POWER_METER = "Z-Wave Stromzähler"
+ZWAVE_DIMMER = "Z-Wave Dimmer"
+ZWAVE_SWITCH = "Z-Wave Schalter"
+MEDIA_CENTER = "Media Center"
+URL_SWITCH = "URL-Schalter"
+URL_TOGGLE = "URL-Toggle"
+URL_RGB_LIGHT = "URL RGB-Licht"
+MQTT_TRIGGER = "MQTT-Trigger"
+MQTT_SENSOR = "MQTT Sensor"
+IP_CAM = "IP Kamera"
+WAKE_ON_LAN = "Wake on Lan Gerät"
+XBOX_ONE_WOL = "XBOX One"
+PHILIPS_HUE_LIGHT = "Philips Hue Lampe"
+RADEMACHER_BLIND_CONTROL = "Rademacher Rolladensteuerung"
+RADEMACHER_THERMOSTAT = "Rademacher Thermostat"
