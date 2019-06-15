@@ -1,0 +1,8 @@
+__title__ = 'telegrambotapiwrapper'
+__description__ = 'Python Telegram Bot Api Wrapper.'
+__url__ = 'https://github.com/pynista/telegrambotapiwrapper'
+__version__ = '0.1.3'
+__author__ = 'Dzmitry Maliuzhenets'
+__author_email__ = 'dzmitrymaliuzhenets@gmail.com'
+__license__ = 'MIT'
+__copyright__ = 'Copyright 2019 Dzmitry Maliuzhenets'
