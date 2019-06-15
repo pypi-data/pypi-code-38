@@ -1,0 +1,99 @@
+from copy import copy
+
+
+class SerializeFormat(object):
+    xml = 1
+    json = 2
+
+    @staticmethod
+    def get_all():
+        return (
+            (SerializeFormat.xml, 'xml'),
+            (SerializeFormat.json, 'json'),
+        )
+
+
+class Model(object):
+
+    def __init__(self):
+        self.parser = None
+
+        self.classes = []
+        self.classes_for_data = []
+        self.objects = []
+        self.functions = []
+        self.classes_dict = {}
+
+        self.model = None
+        self.configs_directory = ''
+        self.out_directory = ''
+        self.data_directory = ''
+        self.out_data_directory = ''
+        self.language = 'py'
+        self.only_data = False
+        self.namespace = 'mg'
+        self.side = 'both'
+        self.php_validate = True
+        self.test_script = ''
+        self.test_script_args = ''
+        self.generate_tests = False
+        self.generate_intrusive = True
+        self.generate_factory = True
+        self.filter_code = None
+        self.filter_data = None
+        self.custom_generator = None
+        self.additional_config_directories = []
+        self.additional_data_directories = []
+        self.serialize_protocol = []
+        self.join_to_one_file = False
+
+        self.simple_types = ["int", "float", "bool", "string"]
+
+        self.out_dict = None
+        self.files = []
+        self.created_files = []
+        self.serialize_formats = SerializeFormat.xml | SerializeFormat.json
+
+    def empty_copy(self):
+        model = copy(self)
+        model.classes = []
+        model.classes_for_data = []
+        model.objects = []
+        model.functions = []
+        model.classes_dict = {}
+        return model
+
+    def clear_data(self):
+        self.parser = None
+        self.classes = []
+        self.classes_for_data = []
+        self.objects = []
+        self.functions = []
+        self.classes_dict = {}
+        self.out_dict = None
+        self.files = []
+        self.created_files = []
+
+    def add_class(self, cls):
+        self.classes_dict[cls.name] = cls
+        self.classes.append(cls)
+
+    def add_classes(self, classes):
+        self.classes.extend(classes)
+        for cls in classes:
+            self.classes_dict[cls.name] = cls
+
+    def get_class(self, name):
+        return self.classes_dict[name]
+
+    def has_class(self, name):
+        return name in self.classes_dict
+
+    def is_side(self, side):
+        return self.side == 'both' or side == self.side or side == 'both'
+
+    def is_lang(self, language):
+        return not language or language == self.language
+
+    def add_file(self, cls, local_path, content):
+        self.files.append((cls, local_path, content))
