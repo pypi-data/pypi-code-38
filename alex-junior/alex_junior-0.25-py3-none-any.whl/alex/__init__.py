@@ -1,0 +1,1 @@
+from .naver_news import NaverNews
