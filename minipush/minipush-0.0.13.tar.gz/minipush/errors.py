@@ -1,0 +1,2 @@
+class mpBadObject(BaseException):
+    pass
