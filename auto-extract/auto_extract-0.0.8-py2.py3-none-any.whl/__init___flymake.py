@@ -1,0 +1,1 @@
+from auto_extract.extract_item import parse_article
