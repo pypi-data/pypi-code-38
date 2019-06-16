@@ -1,0 +1,1 @@
+"""Hardware platforms in MPF."""
