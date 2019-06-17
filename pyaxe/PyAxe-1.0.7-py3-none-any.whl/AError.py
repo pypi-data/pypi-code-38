@@ -1,0 +1,3 @@
+
+class Error(RuntimeError):
+    pass
