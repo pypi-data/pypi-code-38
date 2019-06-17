@@ -1,0 +1,29 @@
+# https://stackoverflow.com/questions/44977227/how-to-configure-main-py-init-py-and-setup-py-for-a-basic-package
+
+from setuptools import setup
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+setup(
+   name='behatrix',
+   version='0.7.0',
+   description='Behatrix - Behavioral Sequences Analysis with permutation test',
+   author='Olivier Friard - Marco Gamba',
+   author_email='olivier.friard@unito.it',
+   long_description=long_description,
+   long_description_content_type="text/markdown",
+   url="http://www.boris.unito.it/pages/behatrix",
+   python_requires=">=3.6",
+   classifiers=[
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+        "Operating System :: OS Independent",
+    ],
+   packages=['behatrix'],  #same as name
+   install_requires=[
+          "pyqt5",
+          "numpy",
+      ],
+ )
