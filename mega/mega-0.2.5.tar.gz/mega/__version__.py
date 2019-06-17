@@ -1,0 +1,7 @@
+__title__ = "mega"
+__description__ = "Python web scraper for DMCA evangelists."
+__version__ = "0.2.5"
+__author__ = "Jason Phan"
+__author_email__ = "xorblonded@gmail.com"
+__url__ = "https://github.com/bl0nd/mega"
+__license__ = "MIT"
