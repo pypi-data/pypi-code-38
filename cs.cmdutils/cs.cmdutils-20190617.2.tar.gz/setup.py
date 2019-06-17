@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+from setuptools import setup
+setup(
+  name = 'cs.cmdutils',
+  description = 'convenience functions for working with the Cmd module and other command line related stuff',
+  author = 'Cameron Simpson',
+  author_email = 'cs@cskk.id.au',
+  version = '20190617.2',
+  url = 'https://bitbucket.org/cameron_simpson/css/commits/all',
+  classifiers = ['Programming Language :: Python', 'Programming Language :: Python :: 2', 'Programming Language :: Python :: 3', 'Development Status :: 4 - Beta', 'Intended Audience :: Developers', 'Operating System :: OS Independent', 'Topic :: Software Development :: Libraries :: Python Modules', 'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)'],
+  include_package_data = True,
+  install_requires = ['cs.mappings', 'cs.pfx', 'cs.resources'],
+  keywords = ['python2', 'python3'],
+  license = 'GNU General Public License v3 or later (GPLv3+)',
+  long_description = "\n\n## Class `BaseCommand`\n\nA base class for handling nestable command lines.\n\nThis class provides the basic parse and dispatch mechanisms\nfor command lines.\nTo implement a command line\none instantiates a subclass of BaseCommand:\n\n  class MyCommand(BaseCommand):\n    GETOPT_SPEC = 'ab:c'\n  ...\n  the_cmd = MyCommand()\n\nRunning a command is done by:\n\n  the_cmd.run(argv)\n\nThe subclass is customised by overriding the following methods:\n* `apply_defaults(options)`:\n  prepare the initial state of `options`\n  before any command line options are applied\n* `apply_opts(options,opts)`:\n  apply the `opts` to `options`.\n  `opts` is an option value mapping\n  as returned by `getopot.getopt`.\n* `cmd_`*subcmd*`(argv,options)`:\n  if the command line options are followed by an argument\n  whose value is *subcmd*,\n  then method `cmd_`*subcmd*`(argv,options)`\n  will be called where `argv` contains the command line arguments\n  after *subcmd*.\n* `main(argv,options)`:\n  if there are no command line aguments after the options\n  or the first argument does not have a corresponding\n  `cmd_`*subcmd* method\n  then method `main(argv,options)`\n  will be called where `argv` contains the command line arguments.\n* `run_context(argv,options,cmd=None)`:\n  a context manager to provide setup or teardown actions\n  to occur before and after the command implementation respectively.\n  If the implementation is a `cmd_`*subcmd* method\n  then this is called with `cmd=`*subcmd`;\n  if the implementation is `main`\n  then this is called with `cmd=None`.\n\nTo aid recursive use\nit is intended that all the per command state\nis contained in the `options` object\nand therefore that in typical use\nall of `apply_opts`, `cmd_`*subcmd*`, `main` and `run_context`\nshould be static methods making no reference to `self`.\n\nEditorial: why not arparse?\nPrimarily because when incorrectly invoked\nan argparse command line prints the help/usage messgae\nand aborts the whole programme with `SystemExit`.\n\n### Method `BaseCommand.__init__(self, getopt_spec=None)`\n\nInitialise the BaseCommand.\n\nParameters:\n* `getopt_spec`: optional `getopt.getopt` compatible\n  option specifier.\n  The default comes from the class' `.GETOPT_SPEC` attribute.\n\n## Function `docmd(dofunc)`\n\nDecorator for Cmd subclass methods\nto supply some basic quality of service.\n\nThis decorator:\n- wraps the function call in a `cs.pfx.Pfx` for context\n- intercepts `getopt.GetoptError`s, issues a `warning`\n  and runs `self.do_help` with the method name,\n  then returns `None`\n- intercepts other `Exception`s,\n  issues an `exception` log message\n  and returns `None`\n\nThe intended use is to decorate `cmd.Cmd` `do_`* methods:\n\n  @docmd\n  def do_something(...):\n    ... do something ...",
+  long_description_content_type = 'text/markdown',
+  package_dir = {'': 'lib/python'},
+  py_modules = ['cs.cmdutils'],
+)
