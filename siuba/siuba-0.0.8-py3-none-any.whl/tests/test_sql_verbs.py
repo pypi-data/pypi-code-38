@@ -1,0 +1,77 @@
+from siuba.sql import group_by, mutate, LazyTbl, collect
+from siuba.siu import _
+from siuba.sql.translate import funcs
+
+
+from sqlalchemy import sql
+from sqlalchemy import Table, Column, Integer, String, MetaData, ForeignKey
+from sqlalchemy import create_engine
+
+from pandas.testing import assert_frame_equal
+import pytest
+
+metadata = MetaData()
+users = Table('users', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String),
+    Column('fullname', String),
+)
+
+
+addresses = Table('addresses', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('user_id', None, ForeignKey('users.id')),
+    Column('email_address', String, nullable=False)
+)
+
+
+@pytest.fixture(scope = "module")
+def db():
+    engine = create_engine('sqlite:///:memory:', echo=False)
+
+    metadata.create_all(engine)
+
+    conn = engine.connect()
+
+    ins = users.insert().values(name='jack', fullname='Jack Jones')
+    result = conn.execute(ins)
+
+
+    ins = users.insert()
+    conn.execute(ins, id=2, name='wendy', fullname='Wendy Williams')
+    yield conn
+
+
+# mutate ----------------------------------------------------------------------
+
+def test_sql_mutate(db):
+    tbl = LazyTbl(db, addresses, funcs = funcs)
+    f = mutate(user_id2 = _.user_id + 1)
+    out1 = tbl >> f >> collect()
+    out2 = tbl >> collect() >> f
+
+    assert_frame_equal(out1, out2)
+
+
+# group_by --------------------------------------------------------------------
+
+@pytest.mark.parametrize("group_vars", [
+    ["id",],                                # string syntax
+    ["id", "user_id"],                      # string syntax multiple
+    [_.id],                                 # _ syntax
+    [_.id, _.user_id],                      # _ syntax multiple
+    ])
+def test_sql_group_by(db, group_vars):
+    tbl = LazyTbl(db, addresses, funcs = funcs)
+    group_by(tbl, *group_vars)
+
+
+@pytest.mark.parametrize("group_var, error", [
+    (_.id + 1, NotImplementedError),        # complex expressions
+    (_.notacol, KeyError)                   # missing columns
+    ])
+def tets_sql_group_by_fail(db, group_var, error):
+    tbl = LazyTbl(db, addresses, funcs = funcs)
+    with pytest.raises(error):
+        group_by(tbl, group_var)
+    
