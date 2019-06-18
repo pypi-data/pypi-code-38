@@ -1,0 +1,2 @@
+class RamblerKassaException(Exception):
+    pass
