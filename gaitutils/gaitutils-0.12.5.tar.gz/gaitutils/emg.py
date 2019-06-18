@@ -1,0 +1,114 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Mar 17 14:41:31 2015
+
+Class for reading EMG
+
+@author: Jussi (jnu@iki.fi)
+"""
+
+
+from __future__ import division
+from builtins import object
+import numpy as np
+from scipy import signal
+import logging
+
+from . import read_data, cfg
+
+logger = logging.getLogger(__name__)
+
+
+class EMG(object):
+    """ Class for handling EMG data. """
+
+    def __init__(self, source, correction_factor=1):
+        logger.debug('new EMG instance from %s' % source)
+        self.source = source
+        # order of Butterworth filter
+        self.buttord = 5
+        self.passband = cfg.emg.passband
+        self.linefreq = cfg.emg.linefreq
+        self.data = None
+        self.correction_factor = correction_factor
+
+    def __getitem__(self, item):
+        """ Return data for a channel (filtered if self.passband is set).
+        Uses name matching: if the specified channel is not found in the data,
+        partial name matches are considered and data for the shortest match is
+        returned. For example, 'LGas' could be mapped to 'Voltage.LGas8' """
+        if item is None or len(item) < 2:
+            raise KeyError('Invalid channel name')
+        if self.data is None:
+            self.read()
+        matches = [x for x in self.data if x.find(item) >= 0]
+        if len(matches) == 0:
+            raise KeyError('No matching channel for %s' % item)
+        else:
+            ch = min(matches, key=len)  # choose shortest matching name
+        if len(matches) > 1:
+            logger.warning('multiple channel matches for %s: %s -> %s' %
+                           (item, matches, ch))
+        data = self.data[ch]
+        data_ = self.filt(data, self.passband) if self.passband else data
+        data_ *= self.correction_factor
+        return data_
+
+    def is_channel(self, item):
+        """ Convenience to see whether a channel exists in the data """
+        try:
+            self[item]
+            return True
+        except KeyError:
+            return False
+
+    def status_ok(self, item):
+        """ Returns True for existing channel with signal ok, False
+        otherwise """
+        return self.is_channel(item) and self._is_valid_emg(self[item])
+
+    def _is_valid_emg(self, y):
+        """ Check whether channel contains a valid EMG signal. Usually invalid
+        signal can be identified by the presence of large powerline (harmonics)
+        compared to broadband signal. Cause is typically disconnected/badly
+        connected electrodes.
+        TODO: should use multiple-zero IIR notch filter """
+        # bandwidth of broadband signal. should be less than dist between
+        # the powerline harmonics
+        broadband_bw = 30
+        power_bw = 4  # width of power line peak detector (bandpass)
+        nharm = 3  # number of harmonics to detect
+        # detect the 50 Hz harmonics
+        linefreqs = (np.arange(nharm+1)+1) * self.linefreq
+        intvar = 0
+        for f in linefreqs:
+            intvar += np.var(self.filt(y, [f-power_bw/2.,
+                                           f+power_bw/2.])) / power_bw
+        # broadband signal
+        band = [self.linefreq+10, self.linefreq+10+broadband_bw]
+        emgvar = np.var(self.filt(y, band)) / broadband_bw
+        intrel = 10*np.log10(intvar/emgvar)
+        return intrel < cfg.emg.max_interference
+
+    def filt(self, y, passband):
+        """ Filter given data y to passband, e.g. [1, 40].
+        Passband is given in Hz. None for no filtering.
+        Implemented as pure lowpass, if highpass freq = 0 """
+        if passband is None:
+            return y
+        passbandn = 2 * np.array(passband) / self.sfrate
+        if passbandn[0] > 0:  # bandpass
+            b, a = signal.butter(self.buttord, passbandn, 'bandpass')
+        else:  # lowpass
+            b, a = signal.butter(self.buttord, passbandn[1])
+        yfilt = signal.filtfilt(b, a, y)
+        # yfilt = yfilt - signal.medfilt(yfilt, 21)
+        return yfilt
+
+    def read(self):
+        meta = read_data.get_metadata(self.source)
+        logger.debug('reading EMG from %s' % meta['trialname'])
+        self.sfrate = meta['analograte']
+        emgdi = read_data.get_emg_data(self.source)
+        self.data = emgdi['data']
+        self.t = emgdi['t']
