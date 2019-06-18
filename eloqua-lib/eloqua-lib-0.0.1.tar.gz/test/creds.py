@@ -1,0 +1,3 @@
+ELOQUA_COMPANY = "gafsandbox"
+ELOQUA_USER_NAME = "IMC.API"
+ELOQUA_PASSWORD = "eloquA1!"
