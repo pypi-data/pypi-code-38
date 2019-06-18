@@ -1,0 +1,1 @@
+from thisamericanlife.models.transcript import Transcripts
