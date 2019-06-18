@@ -1,0 +1,4 @@
+
+
+class SMSDKException(Exception):
+    pass
