@@ -1,0 +1,1 @@
+name = "coucou_pkg"
