@@ -1,0 +1,6 @@
+__title__ = "stockist"
+__description__ = ""
+__version__ = "0.1.0"
+__author__ = "Maina Nick"
+__license__ = "DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE 2.0"
+__copyright__ = "Copyright (C) 2018-Present Maina Nick"
