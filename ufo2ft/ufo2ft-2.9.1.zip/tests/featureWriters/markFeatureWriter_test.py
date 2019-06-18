@@ -1,0 +1,677 @@
+from __future__ import print_function, division, absolute_import, unicode_literals
+from textwrap import dedent
+import logging
+from ufo2ft.featureWriters import ast
+from ufo2ft.featureWriters.markFeatureWriter import (
+    MarkFeatureWriter,
+    NamedAnchor,
+    parseAnchorName,
+)
+from ufo2ft.featureCompiler import parseLayoutFeatures
+
+import pytest
+from . import FeatureWriterTest
+
+
+@pytest.fixture
+def testufo(FontClass):
+    ufo = FontClass()
+    ufo.newGlyph("a").appendAnchor({"name": "top", "x": 100, "y": 200})
+    liga = ufo.newGlyph("f_i")
+    liga.appendAnchor({"name": "top_1", "x": 100, "y": 500})
+    liga.appendAnchor({"name": "top_2", "x": 600, "y": 500})
+    ufo.newGlyph("acutecomb").appendAnchor({"name": "_top", "x": 100, "y": 200})
+    accent = ufo.newGlyph("tildecomb")
+    accent.appendAnchor({"name": "_top", "x": 100, "y": 200})
+    accent.appendAnchor({"name": "top", "x": 100, "y": 300})
+    return ufo
+
+
+@pytest.mark.parametrize(
+    "input_expected",
+    [
+        ("top", (False, "top", None)),
+        ("top_", (False, "top_", None)),
+        ("top1", (False, "top1", None)),
+        ("_bottom", (True, "bottom", None)),
+        ("bottom_2", (False, "bottom", 2)),
+        ("top_right_1", (False, "top_right", 1)),
+    ],
+)
+def test_parseAnchorName(input_expected):
+    anchorName, (isMark, key, number) = input_expected
+    assert parseAnchorName(anchorName) == (isMark, key, number)
+
+
+def test_parseAnchorName_invalid():
+    with pytest.raises(ValueError, match="mark anchor cannot be numbered"):
+        parseAnchorName("_top_2")
+    with pytest.raises(ValueError, match="mark anchor key is nil"):
+        parseAnchorName("_")
+
+
+def test_NamedAnchor_invalid():
+    with pytest.raises(ValueError, match="indexes must start from 1"):
+        NamedAnchor("top_0", 1, 2)
+
+
+def test_NamedAnchor_repr():
+    import sys
+
+    if sys.version_info >= (3,):
+        expected = "NamedAnchor(name='top', x=1.0, y=2.0)"
+    else:
+        expected = "NamedAnchor(name=u'top', x=1.0, y=2.0)"
+    assert repr(NamedAnchor("top", 1.0, 2.0)) == expected
+
+
+class MarkFeatureWriterTest(FeatureWriterTest):
+
+    FeatureWriter = MarkFeatureWriter
+
+    def test__makeMarkClassDefinitions_empty(self, FontClass):
+        ufo = FontClass()
+        ufo.newGlyph("a").appendAnchor({"name": "top", "x": 250, "y": 500})
+        ufo.newGlyph("c").appendAnchor({"name": "bottom", "x": 250, "y": -100})
+        ufo.newGlyph("grave").appendAnchor({"name": "_top", "x": 100, "y": 200})
+        ufo.newGlyph("cedilla").appendAnchor({"name": "_bottom", "x": 100, "y": 0})
+        writer = MarkFeatureWriter()
+        feaFile = ast.FeatureFile()
+        writer.setContext(ufo, feaFile)
+        markClassDefs = writer._makeMarkClassDefinitions()
+
+        assert len(feaFile.markClasses) == 2
+        assert [str(mcd) for mcd in markClassDefs] == [
+            "markClass cedilla <anchor 100 0> @MC_bottom;",
+            "markClass grave <anchor 100 200> @MC_top;",
+        ]
+
+    def test__makeMarkClassDefinitions_non_empty(self, FontClass):
+        ufo = FontClass()
+        ufo.newGlyph("a").appendAnchor({"name": "top", "x": 250, "y": 500})
+        ufo.newGlyph("c").appendAnchor({"name": "bottom", "x": 250, "y": -100})
+        ufo.newGlyph("grave").appendAnchor({"name": "_top", "x": 100, "y": 200})
+        ufo.newGlyph("cedilla").appendAnchor({"name": "_bottom", "x": 100, "y": 0})
+        ufo.features.text = dedent(
+            """\
+            markClass cedilla <anchor 200 0> @MC_bottom;
+            markClass grave <anchor 100 200> @MC_top;
+            """
+        )
+
+        writer = MarkFeatureWriter()
+        feaFile = parseLayoutFeatures(ufo)
+        writer.setContext(ufo, feaFile)
+        markClassDefs = writer._makeMarkClassDefinitions()
+
+        assert len(markClassDefs) == 1
+        assert len(feaFile.markClasses) == 3
+        assert "MC_bottom" in feaFile.markClasses
+        assert "MC_top" in feaFile.markClasses
+        assert [str(mcd) for mcd in markClassDefs] == [
+            "markClass cedilla <anchor 100 0> @MC_bottom_1;"
+        ]
+
+    def test_skip_empty_feature(self, FontClass):
+        ufo = FontClass()
+        assert not self.writeFeatures(ufo)
+
+        ufo.newGlyph("a").appendAnchor({"name": "top", "x": 100, "y": 200})
+        ufo.newGlyph("acutecomb").appendAnchor({"name": "_top", "x": 100, "y": 200})
+
+        fea = str(self.writeFeatures(ufo))
+
+        assert "feature mark" in fea
+        assert "feature mkmk" not in fea
+
+    def test_skip_unnamed_anchors(self, FontClass, caplog):
+        caplog.set_level(logging.ERROR)
+
+        ufo = FontClass()
+        ufo.newGlyph("a").appendAnchor({"x": 100, "y": 200})
+
+        writer = MarkFeatureWriter()
+        feaFile = ast.FeatureFile()
+
+        logger = "ufo2ft.featureWriters.markFeatureWriter.MarkFeatureWriter"
+        with caplog.at_level(logging.WARNING, logger=logger):
+            writer.setContext(ufo, feaFile)
+
+        assert len(caplog.records) == 1
+        assert "unnamed anchor discarded in glyph 'a'" in caplog.text
+
+    def test_warn_duplicate_anchor_names(self, FontClass, caplog):
+        caplog.set_level(logging.ERROR)
+
+        ufo = FontClass()
+        ufo.newGlyph("a").anchors = [
+            {"name": "top", "x": 100, "y": 200},
+            {"name": "top", "x": 200, "y": 300},
+        ]
+
+        writer = MarkFeatureWriter()
+        feaFile = ast.FeatureFile()
+
+        logger = "ufo2ft.featureWriters.markFeatureWriter.MarkFeatureWriter"
+        with caplog.at_level(logging.WARNING, logger=logger):
+            writer.setContext(ufo, feaFile)
+
+        assert len(caplog.records) == 1
+        assert "duplicate anchor 'top' in glyph 'a'" in caplog.text
+
+    def test_warn_liga_anchor_in_mark_glyph(self, testufo, caplog):
+        caplog.set_level(logging.ERROR)
+
+        testufo.newGlyph("ogonekcomb").anchors = [
+            {"name": "_top", "x": 200, "y": -40},
+            {"name": "top_1", "x": 200, "y": 450},  # should not be there!
+        ]
+
+        logger = "ufo2ft.featureWriters.markFeatureWriter.MarkFeatureWriter"
+        with caplog.at_level(logging.WARNING, logger=logger):
+            fea = self.writeFeatures(testufo)
+
+        assert len(caplog.records) == 1
+        assert "invalid ligature anchor 'top_1' in mark glyph" in caplog.text
+
+    def test_ligature_NULL_anchor(self, testufo):
+        testufo.newGlyph("f_f_foo").anchors = [
+            {"name": "top_1", "x": 250, "y": 600},
+            {"name": "top_2", "x": 500, "y": 600},
+            {"name": "_3", "x": 0, "y": 0},  # this becomes <anchor NULL>
+        ]
+        generated = self.writeFeatures(testufo)
+
+        assert "ligComponent <anchor NULL>" in str(generated)
+
+    def test_skip_existing_feature(self, testufo):
+        testufo.features.text = dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+            } mark;
+            """
+        )
+
+        generated = self.writeFeatures(testufo)
+
+        # only mkmk is generated, mark was already present
+        assert str(generated) == dedent(
+            """\
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_append_feature(self, testufo):
+        testufo.features.text = dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+            } mark;
+            """
+        )
+
+        generated = self.writeFeatures(testufo, mode="append")
+
+        assert str(generated) == dedent(
+            """\
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_mark_mkmk_features(self, testufo):
+        writer = MarkFeatureWriter()  # by default both mark + mkmk are built
+        feaFile = ast.FeatureFile()
+        assert writer.write(testufo, feaFile)
+
+        assert str(feaFile) == dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_write_only_one(self, testufo):
+        writer = MarkFeatureWriter(features=["mkmk"])  # only builds "mkmk"
+        feaFile = ast.FeatureFile()
+        assert writer.write(testufo, feaFile)
+        fea = str(feaFile)
+
+        assert "feature mark" not in fea
+        assert "feature mkmk" in fea
+
+        writer = MarkFeatureWriter(features=["mark"])  # only builds "mark"
+        feaFile = ast.FeatureFile()
+        assert writer.write(testufo, feaFile)
+        fea = str(feaFile)
+
+        assert "feature mark" in fea
+        assert "feature mkmk" not in fea
+
+    def test_predefined_anchor_lists(self, FontClass):
+        """ Roboto uses some weird anchor naming scheme, see:
+        https://github.com/google/roboto/blob/
+            5700de83856781fa0c097a349e46dbaae5792cb0/
+            scripts/lib/fontbuild/markFeature.py#L41-L47
+        """
+
+        class RobotoMarkFeatureWriter(MarkFeatureWriter):
+            class NamedAnchor(NamedAnchor):
+                markPrefix = "_mark"
+                ignoreRE = "(^mkmk|_acc$)"
+
+        ufo = FontClass()
+        a = ufo.newGlyph("a")
+        a.anchors = [
+            {"name": "top", "x": 250, "y": 600},
+            {"name": "bottom", "x": 250, "y": -100},
+        ]
+        f_i = ufo.newGlyph("f_i")
+        f_i.anchors = [
+            {"name": "top_1", "x": 200, "y": 700},
+            {"name": "top_2", "x": 500, "y": 700},
+        ]
+        gravecomb = ufo.newGlyph("gravecomb")
+        gravecomb.anchors = [
+            {"name": "_marktop", "x": 160, "y": 780},
+            {"name": "mkmktop", "x": 150, "y": 800},
+            {"name": "mkmkbottom_acc", "x": 150, "y": 600},
+        ]
+        ufo.newGlyph("cedillacomb").appendAnchor(
+            {"name": "_markbottom", "x": 200, "y": 0}
+        )
+        ufo.newGlyph("ogonekcomb").appendAnchor({"name": "_bottom", "x": 180, "y": -10})
+
+        writer = RobotoMarkFeatureWriter()
+        feaFile = ast.FeatureFile()
+        writer.write(ufo, feaFile)
+
+        assert str(feaFile) == dedent(
+            """\
+            markClass cedillacomb <anchor 200 0> @MC_markbottom;
+            markClass gravecomb <anchor 160 780> @MC_marktop;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 250 -100> mark @MC_markbottom <anchor 250 600> mark @MC_marktop;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 200 700> mark @MC_marktop
+                        ligComponent <anchor 500 700> mark @MC_marktop;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_bottom {
+                    @MFS_mark2mark_bottom = [cedillacomb gravecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_bottom;
+                    pos mark gravecomb <anchor 150 600> mark @MC_markbottom;
+                } mark2mark_bottom;
+
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [gravecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark gravecomb <anchor 150 800> mark @MC_marktop;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_abvm_blwm_features(self, FontClass):
+        ufo = FontClass()
+        ufo.info.unitsPerEm = 1000
+
+        dottedCircle = ufo.newGlyph("dottedCircle")
+        dottedCircle.unicode = 0x25CC
+        dottedCircle.anchors = [
+            {"name": "top", "x": 297, "y": 552},
+            {"name": "topright", "x": 491, "y": 458},
+            {"name": "bottom", "x": 297, "y": 0},
+        ]
+
+        nukta = ufo.newGlyph("nukta-kannada")
+        nukta.unicode = 0x0CBC
+        nukta.appendAnchor({"name": "_bottom", "x": 0, "y": 0})
+
+        nukta = ufo.newGlyph("candrabindu-kannada")
+        nukta.unicode = 0x0C81
+        nukta.appendAnchor({"name": "_top", "x": 0, "y": 547})
+
+        halant = ufo.newGlyph("halant-kannada")
+        halant.unicode = 0x0CCD
+        halant.appendAnchor({"name": "_topright", "x": -456, "y": 460})
+
+        ka = ufo.newGlyph("ka-kannada")
+        ka.unicode = 0x0C95
+        ka.appendAnchor({"name": "bottom", "x": 290, "y": 0})
+
+        ka_base = ufo.newGlyph("ka-kannada.base")
+        ka_base.appendAnchor({"name": "top", "x": 291, "y": 547})
+        ka_base.appendAnchor({"name": "topright", "x": 391, "y": 460})
+        ka_base.appendAnchor({"name": "bottom", "x": 290, "y": 0})
+
+        ufo.features.text = dedent(
+            """\
+            languagesystem DFLT dflt;
+            languagesystem knda dflt;
+            languagesystem knd2 dflt;
+
+            feature psts {
+                sub ka-kannada' halant-kannada by ka-kannada.base;
+            } psts;
+            """
+        )
+        generated = self.writeFeatures(ufo)
+
+        assert str(generated) == dedent(
+            """\
+            markClass nukta-kannada <anchor 0 0> @MC_bottom;
+            markClass candrabindu-kannada <anchor 0 547> @MC_top;
+            markClass halant-kannada <anchor -456 460> @MC_topright;
+
+            feature abvm {
+                lookup abvm_mark2base {
+                    pos base ka-kannada.base <anchor 291 547> mark @MC_top <anchor 391 460> mark @MC_topright;
+                } abvm_mark2base;
+
+            } abvm;
+
+            feature blwm {
+                lookup blwm_mark2base {
+                    pos base ka-kannada <anchor 290 0> mark @MC_bottom;
+                    pos base ka-kannada.base <anchor 290 0> mark @MC_bottom;
+                } blwm_mark2base;
+
+            } blwm;
+
+            feature mark {
+                lookup mark2base {
+                    pos base dottedCircle <anchor 297 0> mark @MC_bottom <anchor 297 552> mark @MC_top <anchor 491 458> mark @MC_topright;
+                } mark2base;
+
+            } mark;
+            """
+        )
+
+    def test_all_features(self, testufo):
+        ufo = testufo
+        ufo.info.unitsPerEm = 1000
+
+        cedilla = ufo.newGlyph("cedillacomb").anchors = [
+            {"name": "_bottom", "x": 10, "y": -5},
+            {"name": "bottom", "x": 20, "y": -309},
+        ]
+        c = ufo.newGlyph("c").appendAnchor({"name": "bottom", "x": 240, "y": 0})
+
+        dottedCircle = ufo.newGlyph("dottedCircle")
+        dottedCircle.unicode = 0x25CC
+        dottedCircle.anchors = [
+            {"name": "top", "x": 297, "y": 552},
+            {"name": "bottom", "x": 297, "y": 0},
+            {"name": "bar", "x": 491, "y": 458},
+        ]
+
+        # too lazy, couldn't come up with a real-word example :/
+        foocomb = ufo.newGlyph("foocomb")
+        foocomb.unicode = 0x0B85
+        foocomb.anchors = [
+            {"name": "_top", "x": 100, "y": 40},
+            {"name": "top", "x": 100, "y": 190},
+        ]
+        barcomb = ufo.newGlyph("barcomb")
+        barcomb.unicode = 0x0B86
+        barcomb.anchors = [
+            {"name": "_bar", "x": 100, "y": 40},
+            {"name": "bar", "x": 100, "y": 440.1},
+        ]
+        bazcomb = ufo.newGlyph("bazcomb")
+        bazcomb.unicode = 0x0B87
+        bazcomb.anchors = [
+            {"name": "_bottom", "x": 90, "y": 320},
+            {"name": "bottom", "x": 100, "y": -34},
+        ]
+        foo_bar_baz = ufo.newGlyph("foo_bar_baz")
+        foo_bar_baz.unicode = 0x0B88
+        foo_bar_baz.anchors = [
+            {"name": "top_1", "x": 100, "y": 500},
+            {"name": "bottom_1", "x": 100, "y": 10},
+            {"name": "_2", "x": 600, "y": 500},
+            {"name": "top_3", "x": 1000, "y": 500},
+            {"name": "bar_3", "x": 1100, "y": 499},  # below half UPEM
+        ]
+        bar_foo = ufo.newGlyph("bar_foo")
+        bar_foo.unicode = 0x0B89
+        # sequence doesn't start from 1, the first is implied NULL anchor
+        bar_foo.anchors = [{"name": "top_2", "x": 600, "y": 501}]
+
+        testufo.glyphOrder = [
+            "a",
+            "f_i",
+            "acutecomb",
+            "tildecomb",
+            "cedillacomb",
+            "c",
+            "dottedCircle",
+            "foocomb",
+            "barcomb",
+            "bazcomb",
+            "foo_bar_baz",
+            "bar_foo",
+        ]
+        generated = self.writeFeatures(testufo)
+
+        assert str(generated) == dedent(
+            """\
+            markClass barcomb <anchor 100 40> @MC_bar;
+            markClass cedillacomb <anchor 10 -5> @MC_bottom;
+            markClass bazcomb <anchor 90 320> @MC_bottom;
+            markClass acutecomb <anchor 100 200> @MC_top;
+            markClass tildecomb <anchor 100 200> @MC_top;
+            markClass foocomb <anchor 100 40> @MC_top;
+
+            feature abvm {
+                lookup abvm_mark2liga {
+                    pos ligature foo_bar_baz <anchor 100 500> mark @MC_top
+                        ligComponent <anchor NULL>
+                        ligComponent <anchor 1000 500> mark @MC_top;
+                    pos ligature bar_foo <anchor NULL>
+                        ligComponent <anchor 600 501> mark @MC_top;
+                } abvm_mark2liga;
+
+                lookup abvm_mark2mark_top {
+                    @MFS_abvm_mark2mark_top = [foocomb];
+                    lookupflag UseMarkFilteringSet @MFS_abvm_mark2mark_top;
+                    pos mark foocomb <anchor 100 190> mark @MC_top;
+                } abvm_mark2mark_top;
+
+            } abvm;
+
+            feature blwm {
+                lookup blwm_mark2liga {
+                    pos ligature foo_bar_baz <anchor 100 10> mark @MC_bottom
+                        ligComponent <anchor NULL>
+                        ligComponent <anchor 1100 499> mark @MC_bar;
+                } blwm_mark2liga;
+
+                lookup blwm_mark2mark_bar {
+                    @MFS_blwm_mark2mark_bar = [barcomb];
+                    lookupflag UseMarkFilteringSet @MFS_blwm_mark2mark_bar;
+                    pos mark barcomb <anchor 100 440> mark @MC_bar;
+                } blwm_mark2mark_bar;
+
+                lookup blwm_mark2mark_bottom {
+                    @MFS_blwm_mark2mark_bottom = [bazcomb];
+                    lookupflag UseMarkFilteringSet @MFS_blwm_mark2mark_bottom;
+                    pos mark bazcomb <anchor 100 -34> mark @MC_bottom;
+                } blwm_mark2mark_bottom;
+
+            } blwm;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                    pos base c <anchor 240 0> mark @MC_bottom;
+                    pos base dottedCircle <anchor 491 458> mark @MC_bar <anchor 297 0> mark @MC_bottom <anchor 297 552> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_bottom {
+                    @MFS_mark2mark_bottom = [cedillacomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_bottom;
+                    pos mark cedillacomb <anchor 20 -309> mark @MC_bottom;
+                } mark2mark_bottom;
+
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_mark_mkmk_features_with_GDEF(self, testufo):
+        D = testufo.newGlyph("D")
+        D.anchors = [
+            {"name": "top", "x": 300, "y": 700},
+            {"name": "center", "x": 320, "y": 360},
+        ]
+        # these glyphs have compatible anchors but since they not lised in
+        # the GDEF groups, they won't be included in the mark/mkmk feature
+        testufo.newGlyph("Alpha").appendAnchor({"name": "topleft", "x": -10, "y": 400})
+        testufo.newGlyph("psili").appendAnchor({"name": "_topleft", "x": 0, "y": 50})
+        dotaccentcomb = testufo.newGlyph("dotaccentcomb")
+        # this mark glyph has more than one mark anchor, but only one will be
+        # used to define its markClass. Following Glyphs.app, the anchors
+        # '_bottom' and '_top' get priority over others.
+        dotaccentcomb.anchors = [
+            {"name": "_center", "x": 0, "y": 0},
+            {"name": "_top", "x": 0, "y": 0},
+            {"name": "top", "x": 0, "y": 300},
+        ]
+        testufo.features.text = dedent(
+            """\
+            @Bases = [a D];
+            @Marks = [acutecomb tildecomb dotaccentcomb];
+            table GDEF {
+                GlyphClassDef @Bases, [f_i], @Marks, ;
+            } GDEF;
+            """
+        )
+        testufo.glyphOrder = [
+            "Alpha",
+            "D",
+            "a",
+            "acutecomb",
+            "dotaccentcomb",
+            "f_i",
+            "psili",
+            "tildecomb",
+        ]
+
+        generated = self.writeFeatures(testufo)
+
+        assert str(generated) == dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            markClass dotaccentcomb <anchor 0 0> @MC_top;
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base D <anchor 300 700> mark @MC_top;
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb dotaccentcomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark dotaccentcomb <anchor 0 300> mark @MC_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(pytest.main(sys.argv))
