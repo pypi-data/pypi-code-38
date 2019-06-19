@@ -1,0 +1,1 @@
+default_app_config = 'django_media_placeholder.apps.DjangoMediaPlaceholderConfig'
