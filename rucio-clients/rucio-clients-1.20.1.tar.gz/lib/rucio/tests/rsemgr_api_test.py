@@ -1,0 +1,311 @@
+# Copyright 2012-2018 CERN for the benefit of the ATLAS collaboration.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors:
+# - Ralph Vigne <ralph.vigne@cern.ch>, 2012-2014
+# - Vincent Garonne <vgaronne@gmail.com>, 2012-2018
+# - Wen Guan <wguan.icedew@gmail.com>, 2014-2016
+# - Martin Barisits <martin.barisits@cern.ch>, 2016
+# - Joaquin Bogado <jbogado@linti.unlp.edu.ar>, 2018
+
+from __future__ import print_function
+
+import json
+import os
+import os.path
+import tempfile
+try:
+    from exceptions import NotImplementedError
+except ImportError:
+    pass
+
+from rucio.common.utils import adler32
+from rucio.rse import rsemanager as mgr
+
+
+class MgrTestCases():
+    files_local = ["1_rse_local_put.raw", "2_rse_local_put.raw", "3_rse_local_put.raw", "4_rse_local_put.raw"]
+    files_remote = ['1_rse_remote_get.raw', '2_rse_remote_get.raw', '3_rse_remote_get.raw', '4_rse_remote_get.raw',
+                    '1_rse_remote_delete.raw', '2_rse_remote_delete.raw', '3_rse_remote_delete.raw', '4_rse_remote_delete.raw',
+                    '1_rse_remote_exists.raw', '2_rse_remote_exists.raw',
+                    '1_rse_remote_rename.raw', '2_rse_remote_rename.raw', '3_rse_remote_rename.raw', '4_rse_remote_rename.raw', '5_rse_remote_rename.raw', '6_rse_remote_rename.raw',
+                    '7_rse_remote_rename.raw', '8_rse_remote_rename.raw', '9_rse_remote_rename.raw', '10_rse_remote_rename.raw', '11_rse_remote_rename.raw', '12_rse_remote_rename.raw',
+                    '1_rse_remote_change_scope.raw',
+                    '2_rse_remote_change_scope.raw']
+
+    def __init__(self, tmpdir, rse_tag, user, static_file):
+        self.rse_settings = mgr.get_rse_info(rse_tag)
+        try:
+            with open('etc/rse-accounts.cfg') as f:
+                data = json.load(f)
+            self.rse_settings['credentials'] = data[rse_tag]
+        except KeyError:
+            print('No credentials found for this RSE.')
+            pass
+        self.tmpdir = tmpdir
+        self.gettmpdir = tempfile.mkdtemp()
+        self.user = user
+        self.static_file = static_file
+
+    def setup_scheme(self, scheme, protocol_impl=None):
+        """(RSE/PROTOCOLS):  Make mgr to select this scheme first."""
+        for protocol in self.rse_settings['protocols']:
+            if scheme and protocol['scheme'] != scheme:
+                self.rse_settings['protocols'].remove(protocol)
+        if (protocol_impl is not None) and len(self.rse_settings['protocols']) > 0:
+            self.rse_settings['protocols'][0]['impl'] = 'rucio.rse.protocols.' + protocol_impl + '.Default'
+
+    # Mgr-Tests: GET
+    def test_multi_get_mgr_ok(self):
+        """(RSE/PROTOCOLS): Get multiple files from storage providing LFNs and PFNs (Success)"""
+        pfn_b = mgr.lfns2pfns(self.rse_settings, {'name': '4_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.download(self.rse_settings, [{'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                           {'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                           {'name': '3_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'pfn': self.static_file},
+                                                           {'name': '4_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'pfn': pfn_b}],
+                                       self.gettmpdir)
+        if not (status and details['user.%s:1_rse_remote_get.raw' % self.user] and details['user.%s:2_rse_remote_get.raw' % self.user] and details['user.%s:3_rse_remote_get.raw' % self.user] and details['user.%s:4_rse_remote_get.raw' % self.user]):
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_get_mgr_ok_single_lfn(self):
+        """(RSE/PROTOCOLS): Get a single file from storage provding the LFN (Success)"""
+        mgr.download(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user}, self.gettmpdir)
+
+    def test_get_mgr_ok_single_pfn(self):
+        """(RSE/PROTOCOLS): Get a single file from storage providing the PFN (Success)"""
+        mgr.download(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'pfn': self.static_file}, self.gettmpdir)
+
+    def test_get_mgr_SourceNotFound_multi(self):
+        """(RSE/PROTOCOLS): Get multiple files from storage providing LFNs  and PFNs (SourceNotFound)"""
+        protocol = mgr.create_protocol(self.rse_settings, 'read')
+        pfn_a = protocol.lfns2pfns({'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = protocol.lfns2pfns({'name': '2_rse_remote_get_not_existing.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.download(self.rse_settings, [{'name': '1_not_existing_data.raw', 'scope': 'user.%s' % self.user},
+                                                           {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                           {'name': '2_not_existing_data.raw', 'scope': 'user.%s' % self.user, 'pfn': pfn_b},
+                                                           {'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'pfn': pfn_a}], self.gettmpdir)
+        if details['user.%s:1_rse_remote_get.raw' % self.user] and details['user.%s:2_rse_remote_get.raw' % self.user]:
+            if details['user.%s:1_not_existing_data.raw' % self.user].__class__.__name__ == 'SourceNotFound' and details['user.%s:2_not_existing_data.raw' % self.user].__class__.__name__ == 'SourceNotFound':
+                raise details['user.%s:1_not_existing_data.raw' % self.user]
+            else:
+                raise Exception('Return not as expected: %s, %s' % (status, details))
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_get_mgr_SourceNotFound_single_lfn(self):
+        """(RSE/PROTOCOLS): Get a single file from storage providing LFN (SourceNot Found)"""
+        mgr.download(self.rse_settings, {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user}, self.gettmpdir)
+
+    def test_get_mgr_SourceNotFound_single_pfn(self):
+        """(RSE/PROTOCOLS): Get a single file from storage providing PFN (SourceNotF ound)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        mgr.download(self.rse_settings, {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user, 'pfn': pfn}, self.gettmpdir)
+
+    # Mgr-Tests: PUT
+    def test_put_mgr_ok_multi(self):
+        """(RSE/PROTOCOLS): Put multiple files to storage (Success)"""
+        status, details = mgr.upload(self.rse_settings, [{'name': '1_rse_local_put.raw', 'scope': 'user.%s' % self.user,
+                                                          'adler32': adler32('%s/1_rse_local_put.raw' % self.tmpdir), 'filesize': os.stat('%s/1_rse_local_put.raw' % self.tmpdir)[os.path.stat.ST_SIZE]},
+                                                         {'name': '2_rse_local_put.raw', 'scope': 'user.%s' % self.user,
+                                                          'adler32': adler32('%s/2_rse_local_put.raw' % self.tmpdir), 'filesize': os.stat('%s/2_rse_local_put.raw' % self.tmpdir)[os.path.stat.ST_SIZE]}],
+                                     self.tmpdir)
+        if not (status and details['user.%s:1_rse_local_put.raw' % self.user] and details['user.%s:2_rse_local_put.raw' % self.user]):
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_put_mgr_ok_single(self):
+        """(RSE/PROTOCOLS): Put a single file to storage (Success)"""
+        mgr.upload(self.rse_settings, {'name': '3_rse_local_put.raw', 'scope': 'user.%s' % self.user,
+                                       'adler32': adler32('%s/3_rse_local_put.raw' % self.tmpdir), 'filesize': os.stat('%s/3_rse_local_put.raw' % self.tmpdir)[os.path.stat.ST_SIZE]}, self.tmpdir)
+
+    def test_put_mgr_SourceNotFound_multi(self):
+        """(RSE/PROTOCOLS): Put multiple files to storage (SourceNotFound)"""
+        status, details = mgr.upload(self.rse_settings, [{'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user,
+                                                          'adler32': 'some_random_stuff', 'filesize': 4711},
+                                                         {'name': '4_rse_local_put.raw', 'scope': 'user.%s' % self.user,
+                                                          'adler32': adler32('%s/4_rse_local_put.raw' % self.tmpdir), 'filesize': os.stat('%s/4_rse_local_put.raw' % self.tmpdir)[os.path.stat.ST_SIZE]}],
+                                     self.tmpdir)
+        if details['user.%s:4_rse_local_put.raw' % self.user]:
+            raise details['user.%s:not_existing_data.raw' % self.user]
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_put_mgr_SourceNotFound_single(self):
+        """(RSE/PROTOCOLS): Put a single file to storage (SourceNotFound)"""
+        mgr.upload(self.rse_settings, {'name': 'not_existing_data2.raw', 'scope': 'user.%s' % self.user, 'adler32': 'random_stuff', 'filesize': 0}, self.tmpdir)
+
+    def test_put_mgr_FileReplicaAlreadyExists_multi(self):
+        """(RSE/PROTOCOLS): Put multiple files to storage (FileReplicaAlreadyExists)"""
+        status, details = mgr.upload(self.rse_settings, [{'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'adler32': "bla-bla", 'filesize': 4711},
+                                                         {'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'adler32': "bla-bla", 'filesize': 4711}],
+                                     self.tmpdir)
+        if details['user.%s:1_rse_remote_get.raw' % self.user]:
+            raise details['user.%s:2_rse_remote_get.raw' % self.user]
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_put_mgr_FileReplicaAlreadyExists_single(self):
+        """(RSE/PROTOCOLS): Put a single file to storage (FileReplicaAlreadyExists)"""
+        mgr.upload(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user, 'adler32': 'bla-bla', 'filesize': 4711}, self.tmpdir)
+
+    # MGR-Tests: DELETE
+    def test_delete_mgr_ok_multi(self):
+        """(RSE/PROTOCOLS): Delete multiple files from storage (Success)"""
+        status, details = mgr.delete(self.rse_settings, [{'name': '1_rse_remote_delete.raw', 'scope': 'user.%s' % self.user}, {'name': '2_rse_remote_delete.raw', 'scope': 'user.%s' % self.user}])
+        if not (status and details['user.%s:1_rse_remote_delete.raw' % self.user] and details['user.%s:2_rse_remote_delete.raw' % self.user]):
+            if isinstance(details['user.%s:1_rse_remote_delete.raw' % self.user], NotImplementedError) and isinstance(details['user.%s:2_rse_remote_delete.raw' % self.user], NotImplementedError):
+                pass
+            else:
+                raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_delete_mgr_ok_single(self):
+        """(RSE/PROTOCOLS): Delete a single file from storage (Success)"""
+        mgr.delete(self.rse_settings, {'name': '3_rse_remote_delete.raw', 'scope': 'user.%s' % self.user})
+
+    def test_delete_mgr_ok_dir(self):
+        """(RSE/PROTOCOLS): Delete a directory from storage (Success)"""
+        mgr.delete(self.rse_settings, {'path': 'user/%s' % self.user, 'name': 'user.%s' % self.user, 'scope': 'user.%s' % self.user})
+
+    def test_delete_mgr_SourceNotFound_multi(self):
+        """(RSE/PROTOCOLS): Delete multiple files from storage (SourceNotFound)"""
+        status, details = mgr.delete(self.rse_settings, [{'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user}, {'name': '4_rse_remote_delete.raw', 'scope': 'user.%s' % self.user}])
+        if details['user.%s:4_rse_remote_delete.raw' % self.user]:
+            raise details['user.%s:not_existing_data.raw' % self.user]
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_delete_mgr_SourceNotFound_single(self):
+        """(RSE/PROTOCOLS): Delete a single file from storage (SourceNotFound)"""
+        mgr.delete(self.rse_settings, {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user})
+
+    # MGR-Tests: EXISTS
+    def test_exists_mgr_ok_multi(self):
+        """(RSE/PROTOCOLS): Check multiple files on storage (Success)"""
+        pfn_a = mgr.lfns2pfns(self.rse_settings, {'name': '3_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = mgr.lfns2pfns(self.rse_settings, {'name': '4_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.exists(self.rse_settings, [{'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                         {'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                         {'name': pfn_a},
+                                                         {'name': pfn_b}])
+        if not (status and details['user.%s:1_rse_remote_get.raw' % self.user] and details['user.%s:2_rse_remote_get.raw' % self.user] and details[pfn_a] and details[pfn_b]):
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_exists_mgr_ok_single_lfn(self):
+        """(RSE/PROTOCOLS): Check a single file on storage using LFN (Success)"""
+        mgr.exists(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user})
+
+    def test_exists_mgr_ok_single_pfn(self):
+        """(RSE/PROTOCOLS): Check a single file on storage using PFN (Success)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        mgr.exists(self.rse_settings, {'name': pfn})
+
+    def test_exists_mgr_false_multi(self):
+        """(RSE/PROTOCOLS): Check multiple files on storage (Fail)"""
+        pfn_a = mgr.lfns2pfns(self.rse_settings, {'name': '2_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_not_existing.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.exists(self.rse_settings, [{'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user},
+                                                         {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user},
+                                                         {'name': pfn_a},
+                                                         {'name': pfn_b}])
+        if status or not details['user.%s:1_rse_remote_get.raw' % self.user] or details['user.%s:not_existing_data.raw' % self.user] or not details[pfn_a] or details[pfn_b]:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_exists_mgr_false_single_lfn(self):
+        """(RSE/PROTOCOLS): Check a single file on storage using LFN (Fail)"""
+        not mgr.exists(self.rse_settings, {'name': 'not_existing_data.raw', 'scope': 'user.%s' % self.user})
+
+    def test_exists_mgr_false_single_pfn(self):
+        """(RSE/PROTOCOLS): Check a single file on storage using PFN (Fail)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_not_existing.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        not mgr.exists(self.rse_settings, {'name': pfn})
+
+    # MGR-Tests: RENAME
+    def test_rename_mgr_ok_multi(self):
+        """(RSE/PROTOCOLS): Rename multiple files on storage (Success)"""
+        protocol = mgr.create_protocol(self.rse_settings, 'write')
+        pfn_a = protocol.lfns2pfns({'name': '7_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_a_new = protocol.lfns2pfns({'name': '7_rse_new_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = protocol.lfns2pfns({'name': '8_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b_new = protocol.lfns2pfns({'name': '8_rse_new_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.rename(self.rse_settings, [{'name': '1_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '1_rse_remote_renamed.raw'},
+                                                         {'name': '2_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '2_rse_remote_renamed.raw'},
+                                                         {'name': pfn_a, 'new_name': pfn_a_new},
+                                                         {'name': pfn_b, 'new_name': pfn_b_new}])
+        if not status or not (details['user.%s:1_rse_remote_rename.raw' % self.user] and details['user.%s:2_rse_remote_rename.raw' % self.user] and details[pfn_a] and details[pfn_b]):
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_rename_mgr_ok_single_lfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using LFN (Success)"""
+        mgr.rename(self.rse_settings, {'name': '3_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '3_rse_remote_renamed.raw', 'new_scope': 'user.%s' % self.user})
+
+    def test_rename_mgr_ok_single_pfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using PFN (Success)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '9_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_new = mgr.lfns2pfns(self.rse_settings, {'name': '9_rse_new.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        mgr.rename(self.rse_settings, {'name': pfn, 'new_name': pfn_new})
+
+    def test_rename_mgr_FileReplicaAlreadyExists_multi(self):
+        """(RSE/PROTOCOLS): Rename multiple files on storage (FileReplicaAlreadyExists)"""
+        pfn_a = mgr.lfns2pfns(self.rse_settings, {'name': '10_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_a_new = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = mgr.lfns2pfns(self.rse_settings, {'name': '11_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b_new = mgr.lfns2pfns(self.rse_settings, {'name': '11_rse_new_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.rename(self.rse_settings, [{'name': '4_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '1_rse_remote_get.raw', 'new_scope': 'user.%s' % self.user},
+                                                         {'name': '5_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '5_rse_new.raw'},
+                                                         {'name': pfn_a, 'new_name': pfn_a_new},
+                                                         {'name': pfn_b, 'new_name': pfn_b_new}])
+        if (not status and details['user.%s:5_rse_remote_rename.raw' % self.user] and details[pfn_b]) and isinstance(details['user.%s:4_rse_remote_rename.raw' % self.user], type(details[pfn_a])):
+            raise details['user.%s:4_rse_remote_rename.raw' % self.user]
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_rename_mgr_FileReplicaAlreadyExists_single_lfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using LFN (FileReplicaAlreadyExists)"""
+        mgr.rename(self.rse_settings, {'name': '6_rse_remote_rename.raw', 'scope': 'user.%s' % self.user, 'new_name': '1_rse_remote_get.raw', 'new_scope': 'user.%s' % self.user})
+
+    def test_rename_mgr_FileReplicaAlreadyExists_single_pfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using PFN (FileReplicaAlreadyExists)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '12_rse_remote_rename.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_new = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_remote_get.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        mgr.rename(self.rse_settings, {'name': pfn, 'new_name': pfn_new})
+
+    def test_rename_mgr_SourceNotFound_multi(self):
+        """(RSE/PROTOCOLS): Rename multiple files on storage (SourceNotFound)"""
+        pfn_a = mgr.lfns2pfns(self.rse_settings, {'name': '12_rse_not_existing.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_b = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_not_created.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        status, details = mgr.rename(self.rse_settings, [{'name': '1_rse_not_existing.raw', 'scope': 'user.%s' % self.user, 'new_name': '1_rse_new_not_created.raw'},
+                                                         {'name': pfn_a, 'new_name': pfn_b}])
+        if not status and isinstance(details['user.%s:1_rse_not_existing.raw' % self.user], type(details[pfn_a])):
+            raise details['user.%s:1_rse_not_existing.raw' % self.user]
+        else:
+            raise Exception('Return not as expected: %s, %s' % (status, details))
+
+    def test_rename_mgr_SourceNotFound_single_lfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using LFN (SourceNotFound)"""
+        mgr.rename(self.rse_settings, {'name': '1_rse_not_existing.raw', 'scope': 'user.%s' % self.user, 'new_name': '1_rse_new_not_created.raw'})
+
+    def test_rename_mgr_SourceNotFound_single_pfn(self):
+        """(RSE/PROTOCOLS): Rename a single file on storage using PFN (SourceNotFound)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_not_existing.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_new = mgr.lfns2pfns(self.rse_settings, {'name': '1_rse_new_not_created.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        mgr.rename(self.rse_settings, {'name': pfn, 'new_name': pfn_new})
+
+    def test_change_scope_mgr_ok_single_lfn(self):
+        """(RSE/PROTOCOLS): Change the scope of a single file on storage using LFN (Success)"""
+        mgr.rename(self.rse_settings, {'name': '1_rse_remote_change_scope.raw', 'scope': 'user.%s' % self.user, 'new_scope': 'group.%s' % self.user})
+
+    def test_change_scope_mgr_ok_single_pfn(self):
+        """(RSE/PROTOCOLS): Change the scope of a single file on storage using PFN (Success)"""
+        pfn = mgr.lfns2pfns(self.rse_settings, {'name': '2_rse_remote_change_scope.raw', 'scope': 'user.%s' % self.user}).values()[0]
+        pfn_new = mgr.lfns2pfns(self.rse_settings, {'name': '2_rse_remote_change_scope.raw', 'scope': 'group.%s' % self.user}).values()[0]
+        mgr.rename(self.rse_settings, {'name': pfn, 'new_name': pfn_new})
