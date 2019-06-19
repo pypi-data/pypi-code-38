@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+from Products.ATContentTypes.interfaces.document import IATDocument  # noqa
+from Products.ATContentTypes.interfaces.event import IATEvent  # noqa
+from Products.ATContentTypes.interfaces.factory import IFactoryTool  # noqa
+from Products.ATContentTypes.interfaces.file import IATFile  # noqa
+from Products.ATContentTypes.interfaces.file import IFileContent  # noqa
+from Products.ATContentTypes.interfaces.folder import IATBTreeFolder  # noqa
+from Products.ATContentTypes.interfaces.folder import IATFolder  # noqa
+from Products.ATContentTypes.interfaces.folder import IFilterFolder  # noqa
+from Products.ATContentTypes.interfaces.image import IATImage  # noqa
+from Products.ATContentTypes.interfaces.image import IImageContent  # noqa
+from Products.ATContentTypes.interfaces.interfaces import IATCTTool  # noqa
+from Products.ATContentTypes.interfaces.interfaces import IATContentType  # noqa
+from Products.ATContentTypes.interfaces.interfaces import ICalendarSupport  # noqa
+from Products.ATContentTypes.interfaces.interfaces import IHistoryAware  # noqa
+from Products.ATContentTypes.interfaces.interfaces import ISelectableConstrainTypes  # noqa
+from Products.ATContentTypes.interfaces.interfaces import ITextContent  # noqa
+from Products.ATContentTypes.interfaces.link import IATLink  # noqa
+from Products.ATContentTypes.interfaces.news import IATNewsItem  # noqa
+from Products.ATContentTypes.interfaces.topic import IATCTTopicsTool  # noqa
+from Products.ATContentTypes.interfaces.topic import IATTopic  # noqa
+from Products.ATContentTypes.interfaces.topic import IATTopicCriterion  # noqa
+from Products.ATContentTypes.interfaces.topic import IATTopicSearchCriterion  # noqa
+from Products.ATContentTypes.interfaces.topic import IATTopicSortCriterion  # noqa
+from Products.ATContentTypes.interfaces.factories import IATCTFileFactory  # noqa
