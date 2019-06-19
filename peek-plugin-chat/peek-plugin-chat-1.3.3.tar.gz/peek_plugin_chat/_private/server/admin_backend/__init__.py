@@ -1,0 +1,2 @@
+def makeAdminBackendHandlers(dbSessionCreator):
+    return []
