@@ -1,0 +1,2 @@
+class OneOfTheseKwargsNotProvided(Exception):
+    pass
