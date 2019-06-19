@@ -1,0 +1,1 @@
+from .datastore_manager_settings import manager as manager_datastore
