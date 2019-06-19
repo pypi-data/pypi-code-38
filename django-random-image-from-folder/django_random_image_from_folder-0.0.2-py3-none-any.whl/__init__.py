@@ -1,0 +1,1 @@
+name = "django-random-image-from-folder"
