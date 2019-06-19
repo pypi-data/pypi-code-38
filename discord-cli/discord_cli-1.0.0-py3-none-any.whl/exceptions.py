@@ -1,0 +1,21 @@
+class Discord_CLI_Error(Exception): pass
+    
+class Command_Already_Exists_Error(Discord_CLI_Error): pass
+class Ambiguous_Parameter_Error(Discord_CLI_Error): pass
+class Command_Not_Found_Error(Discord_CLI_Error): pass
+class Unexpected_Argument_Error(Discord_CLI_Error): pass
+class Unexpected_Word_Error(Discord_CLI_Error): pass
+class Unexpected_Letter_Error(Discord_CLI_Error): pass
+class Invalid_Argument_Error(Discord_CLI_Error): pass
+class Invalid_Option_Error(Discord_CLI_Error): pass
+class Expected_Arguments_Error(Discord_CLI_Error): pass
+class Command_Not_Executable_Error(Discord_CLI_Error): pass
+class Insufficient_Permissions_Error(Discord_CLI_Error): pass
+class Value_Error(Discord_CLI_Error): pass
+class Type_Error(Discord_CLI_Error): pass
+class Name_Already_In_Use_Error(Discord_CLI_Error): pass
+class Letter_Already_In_Use_Error(Discord_CLI_Error): pass
+class Word_Already_In_Use_Error(Discord_CLI_Error): pass
+class Not_Async_Function_Error(Discord_CLI_Error): pass
+class Cannot_Create_Instance_Of_Base_Class_Error(Discord_CLI_Error): pass
+class Cannot_Add_Parameters_Error(Discord_CLI_Error): pass
