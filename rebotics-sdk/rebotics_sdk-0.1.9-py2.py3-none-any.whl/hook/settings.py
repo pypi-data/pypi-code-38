@@ -1,0 +1,4 @@
+from django.conf import settings
+
+REBOTICS_RETAILER_SERVICE_HOST = getattr(settings, 'REBOTICS_RETAILER_SERVICE_HOST', '')
+REBOTICS_RETAILER_SERVICE_TOKEN = getattr(settings, 'REBOTICS_RETAILER_SERVICE_TOKEN', '')
