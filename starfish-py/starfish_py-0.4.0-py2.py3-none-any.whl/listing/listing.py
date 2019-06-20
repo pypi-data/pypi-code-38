@@ -1,0 +1,74 @@
+
+"""
+   Listing class
+"""
+
+from starfish.listing.listing_base import ListingBase
+from starfish.account import Account
+
+class Listing(ListingBase):
+    """
+        Create a Listing object
+
+        :param agent: agent object that created the listing.
+        :type agent: :class:`.Agent` object to assign to this Listing
+        :param str did: did of the listing, this can be the did of the underling asset.
+        :param asset: the core asset for this listing
+        :type asset: :class:`.Asset` object
+        :param data: data of the listing
+        :type data: dict
+    """
+
+
+    def purchase(self, account):
+        """
+
+        Purchase the underlying asset within this listing using the account details, return a purchased asset
+        with the service_agreement_id ( purchase_id ) set.
+
+        :param account: account to use to purchase this asset.
+        :type account: :class:`.Account`
+
+        :return: SquidPurchase object that has information about this listing, asset and purcase id.
+        :type: :class:`.SquidPurchase`
+
+        """
+        if not isinstance(account, Account):
+            raise TypeError('You need to pass an Account object')
+
+        return self._agent.purchase_asset(self, account)
+
+    def set_published(self, value):
+        """
+
+        Set the published value
+
+        :params boolean value: Published value True or False
+
+        """
+        if self._data and isinstance(self._data, dict) and 'status' in self._data:
+            if value:
+                self._data['status'] = 'published'
+            else:
+                self._data['status'] = 'unpublished'
+
+    @property
+    def is_published(self):
+        """
+
+        Return a True if this listing is published
+
+        :return: True of False if this listing is published
+        :type: boolean
+
+        """
+        if self._data and isinstance(self._data, dict) and 'status' in self._data:
+            return self._data['status'] == 'published'
+        return False
+
+    def __str__(self):
+        s = 'Listing: agent=' + self._agent.__class__.__name__ + ', '
+        s += 'listing_id=' + self._listing_id + ', '
+        s += 'asset=' + self._asset.__class__.__name__ + ', '
+        s += 'data=' + str(self._data)
+        return s
