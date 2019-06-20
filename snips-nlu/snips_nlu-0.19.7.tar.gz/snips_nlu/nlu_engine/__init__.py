@@ -1,0 +1,1 @@
+from snips_nlu.nlu_engine.nlu_engine import SnipsNLUEngine
