@@ -1,0 +1,63 @@
+#
+
+from django.db import models
+
+
+class Garden(models.Model):
+    name = models.CharField(max_length=100)
+    area = models.IntegerField()
+    raining = models.BooleanField(default=None)
+
+    class Meta:
+        # Intentional weird case to test case normalisation
+        verbose_name = "gArDeN"
+        verbose_name_plural = "GaRdENs"
+
+    @property
+    def howbig(self):
+        if self.area < 50:
+            return 'small'
+        elif self.area < 150:
+            return 'medium'
+        else:
+            return 'big'
+
+
+class Field(models.Model):
+    name = models.CharField(max_length=100)
+
+
+class Fruit(models.Model):
+    name = models.CharField(max_length=100)
+    garden = models.ForeignKey(Garden, on_delete=models.CASCADE)
+    ripe_by = models.DateField()
+    fields = models.ManyToManyField(Field)
+
+
+class Bee(models.Model):
+    name = models.CharField(max_length=100)
+    pollinated_fruit = models.ManyToManyField(Fruit,
+                                              related_name='pollinated_by')
+
+
+class Goose(models.Model):
+    name = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name_plural = "geese"
+
+
+class Harvester(models.Model):
+    make = models.CharField(max_length=100)
+    rego = models.CharField(max_length=100)
+    garden = models.ForeignKey(Garden,
+                               blank=True, null=True,
+                               on_delete=models.SET_NULL)
+
+
+class Panda(models.Model):
+    """
+    Not part of a garden, but still an important part of any good application
+    """
+    name = models.CharField(max_length=100)
+    location = models.CharField(max_length=100)
