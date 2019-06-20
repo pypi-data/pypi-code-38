@@ -1,0 +1,93 @@
+# (C) Datadog, Inc. 2018
+# All rights reserved
+# Licensed under a 3-clause BSD style license (see LICENSE)
+import os
+
+from six import iteritems
+
+E2E_PREFIX = 'DDEV_E2E'
+E2E_ENV_VAR_PREFIX = '{}_ENV_'.format(E2E_PREFIX)
+E2E_SET_UP = '{}_UP'.format(E2E_PREFIX)
+E2E_TEAR_DOWN = '{}_DOWN'.format(E2E_PREFIX)
+E2E_PARENT_PYTHON = '{}_PYTHON_PATH'.format(E2E_PREFIX)
+AGENT_COLLECTOR_SEPARATOR = '=== JSON ==='
+
+E2E_FIXTURE_NAME = 'dd_environment'
+TESTING_PLUGIN = 'DDEV_TESTING_PLUGIN'
+
+
+def e2e_active():
+    return any(ev.startswith(E2E_PREFIX) for ev in os.environ)
+
+
+def e2e_testing():
+    return E2E_PARENT_PYTHON in os.environ
+
+
+def set_env_vars(env_vars):
+    for key, value in iteritems(env_vars):
+        key = '{}{}'.format(E2E_ENV_VAR_PREFIX, key)
+        os.environ[key] = value
+
+
+def remove_env_vars(env_vars):
+    for ev in env_vars:
+        os.environ.pop('{}{}'.format(E2E_ENV_VAR_PREFIX, ev), None)
+
+
+def get_env_vars(raw=False):
+    if raw:
+        return {key: value for key, value in iteritems(os.environ) if key.startswith(E2E_ENV_VAR_PREFIX)}
+    else:
+        env_vars = {}
+
+        for key, value in iteritems(os.environ):
+            _, found, ev = key.partition(E2E_ENV_VAR_PREFIX)
+            if found:
+                # Normalize casing for Windows
+                env_vars[ev.lower()] = value
+
+        return env_vars
+
+
+def set_up_env():
+    return os.getenv(E2E_SET_UP, 'true') != 'false'
+
+
+def tear_down_env():
+    return os.getenv(E2E_TEAR_DOWN, 'true') != 'false'
+
+
+def format_config(config):
+    if 'instances' not in config:
+        config = {'instances': [config]}
+
+    # Agent 5 requires init_config
+    if 'init_config' not in config:
+        config = dict(init_config={}, **config)
+
+    return config
+
+
+def replay_check_run(agent_collector, stub_aggregator):
+    # We assume a test only uses one instance
+    agent_collector = agent_collector[0]
+    aggregator = agent_collector['aggregator']
+    runner = agent_collector['runner']
+    check_id = runner['CheckID']
+    check_name = runner['CheckName']
+
+    for data in aggregator.get('metrics', []):
+        for _, value in data['points']:
+            metric_type = stub_aggregator.METRIC_ENUM_MAP[data['type']]
+            stub_aggregator.submit_metric(
+                check_name, check_id, metric_type, data['metric'], value, data['tags'], data['host']
+            )
+
+    for data in aggregator.get('service_checks', []):
+        stub_aggregator.submit_service_check(
+            check_name, check_id, data['check'], data['status'], data['tags'], data['host_name'], data['message']
+        )
+
+    if runner['LastError']:
+        raise Exception(runner['LastError'])
