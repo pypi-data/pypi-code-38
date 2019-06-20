@@ -1,0 +1,14 @@
+from .string_processor import camel_case_to_underscore, underscore_to_camel_case
+from .dict_processor import dict_keys_camel_case_to_underscore, dict_keys_underscore_to_camel_case
+
+# Aliases
+CamelCaseToUnderscore = camel_case_to_underscore
+camelCaseToUnderscore = camel_case_to_underscore
+
+underscoreToCamelCase = underscore_to_camel_case
+UnderscoreToCamelCase = underscore_to_camel_case
+
+# Deprecated imports
+from .deprecated import camel_case_to_underscope, CamelCaseToUnderscope, camelCaseToUnderscope
+from .deprecated import underscope_to_camel_case, underscopeToCamelCase, UnderscopeToCamelCase
+from .deprecated import dict_keys_underscope_to_camel_case, dict_keys_camel_case_to_underscope
