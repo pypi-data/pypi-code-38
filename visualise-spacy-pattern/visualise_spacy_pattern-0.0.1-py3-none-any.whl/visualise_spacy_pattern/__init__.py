@@ -1,0 +1,1 @@
+from visualise_spacy_pattern.visualise_spacy_pattern import to_pydot
