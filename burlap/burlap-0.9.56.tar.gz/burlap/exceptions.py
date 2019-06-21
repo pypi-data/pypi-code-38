@@ -1,0 +1,3 @@
+
+class AbortDeployment(Exception):
+    pass
