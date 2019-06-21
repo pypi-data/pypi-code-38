@@ -1,0 +1,53 @@
+""" Package constants """
+
+__author__ = "Vince Reuter"
+__email__ = "vreuter@virginia.edu"
+
+
+SAMPLE_NAME_COLNAME = "sample_name"
+
+# Project-related
+NAME_TABLE_ATTR = "sample_table"
+CONSTANTS_DECLARATION = "constant_attributes"
+DATA_SOURCES_SECTION = "data_sources"
+DERIVATIONS_DECLARATION = "derived_attributes"
+IMPLICATIONS_DECLARATION = "implied_attributes"
+METADATA_KEY = "metadata"
+OUTDIR_KEY = "output_dir"
+SAMPLE_INDEPENDENT_PROJECT_SECTIONS = \
+        [METADATA_KEY, DERIVATIONS_DECLARATION, IMPLICATIONS_DECLARATION,
+         "trackhubs"]
+SUBPROJECTS_SECTION = "subprojects"
+PIPE_ARGS_SECTION = "pipeline_args"
+SUBMISSION_FOLDER_KEY = "submission_subdir"
+RESULTS_FOLDER_KEY = "results_subdir"
+PROJECT_CONSTANTS = [
+    "CONSTANTS_DECLARATION", "DATA_SOURCES_SECTION", "DERIVATIONS_DECLARATION",
+    "IMPLICATIONS_DECLARATION", "METADATA_KEY", "NAME_TABLE_ATTR", "OUTDIR_KEY",
+    "PIPE_ARGS_SECTION", "RESULTS_FOLDER_KEY",
+    "SAMPLE_INDEPENDENT_PROJECT_SECTIONS", "SUBMISSION_FOLDER_KEY",
+    "SUBPROJECTS_SECTION"]
+SNAKEMAKE_SAMPLE_COL = "sample"
+
+# Sample-related
+ASSAY_KEY = "protocol"
+DATA_SOURCE_COLNAME = "data_source"
+SAMPLE_ANNOTATIONS_KEY = NAME_TABLE_ATTR
+SAMPLE_SUBANNOTATIONS_KEY = "subsample_table"
+SAMPLE_EXECUTION_TOGGLE = "toggle"
+VALID_READ_TYPES = ["single", "paired"]
+REQUIRED_INPUTS_ATTR_NAME = "required_inputs_attr"
+ALL_INPUTS_ATTR_NAME = "all_inputs_attr"
+SAMPLE_CONSTANTS = ["ALL_INPUTS_ATTR_NAME", "ASSAY_KEY", "DATA_SOURCE_COLNAME",
+                    "REQUIRED_INPUTS_ATTR_NAME", "SAMPLE_ANNOTATIONS_KEY",
+                    "SAMPLE_SUBANNOTATIONS_KEY", "SAMPLE_EXECUTION_TOGGLE",
+                    "VALID_READ_TYPES"]
+
+# Other
+FLAGS = ["completed", "running", "failed", "waiting", "partial"]
+GENERIC_PROTOCOL_KEY = "*"
+OTHER_CONSTANTS = ["FLAGS", "GENERIC_PROTOCOL_KEY"]
+
+
+__all__ = ["SAMPLE_NAME_COLNAME"] + PROJECT_CONSTANTS + \
+          SAMPLE_CONSTANTS + OTHER_CONSTANTS
