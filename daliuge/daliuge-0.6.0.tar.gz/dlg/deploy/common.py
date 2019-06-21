@@ -1,0 +1,119 @@
+#
+#    ICRAR - International Centre for Radio Astronomy Research
+#    (c) UWA - The University of Western Australia, 2019
+#    Copyright by UWA (in the framework of the ICRAR)
+#    All rights reserved
+#
+#    This library is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU Lesser General Public
+#    License as published by the Free Software Foundation; either
+#    version 2.1 of the License, or (at your option) any later version.
+#
+#    This library is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#    Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public
+#    License along with this library; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+#    MA 02111-1307  USA
+#
+import json
+import logging
+import os
+import time
+
+from .. import droputils
+from ..manager import constants
+from ..manager.client import BaseDROPManagerClient
+from ..manager.session import SessionStates
+
+
+logger = logging.getLogger(__name__)
+
+class _StatusDumper(BaseDROPManagerClient):
+    """A client that dumps the graph status each time a session is queried"""
+
+    def __init__(self, *args, **kwargs):
+        self.dump_path = kwargs.pop('dump_path')
+        super(_StatusDumper, self).__init__(*args, **kwargs)
+
+    def _dump_session_status(self, session_id):
+        wgs = {
+            'ssid': session_id,
+            'gs': self.graph_status(session_id),
+            'ts': '%.3f' % time.time()
+        }
+        with open(self.dump_path, 'a') as fs:
+            json.dump(wgs, fs)
+            fs.write(os.linesep)
+
+    def sessions(self):
+        sessions = super(_StatusDumper, self).sessions()
+        for session in sessions:
+            self._dump_session_status(session['sessionId'])
+        return sessions
+
+    def session(self, session_id):
+        session = super(_StatusDumper, self).session(session_id)
+        self._dump_session_status(session_id)
+        return session
+
+
+def _session_finished(session_status):
+    return session_status in (SessionStates.FINISHED, SessionStates.CANCELLED)
+
+def _get_client(host, port, timeout, status_dump_path=None):
+    kwargs = {'host': host, 'port': port, 'timeout': timeout}
+    clazz = BaseDROPManagerClient
+    if status_dump_path:
+        clazz = _StatusDumper
+        kwargs['dump_path'] = status_dump_path
+    return clazz(**kwargs)
+
+def session_finished(session):
+    session_status = session['status']
+    logger.debug("Session status: %r", session_status)
+    if isinstance(session_status, dict):
+        return all(_session_finished(s) for s in session_status.values())
+    return _session_finished(session_status)
+
+def monitor_sessions(session_id=None, poll_interval=10, host='127.0.0.1',
+                     port=constants.NODE_DEFAULT_REST_PORT, timeout=60,
+                     status_dump_path=None):
+    """
+    Monitors the execution status of all sessions (or the single session
+    specified by `session_id`) by polling `host`:`port`, and returns when they
+    all have finished executing.
+    """
+    client = _get_client(host, port, timeout, status_dump_path)
+    if session_id:
+        while not session_finished(client.session(session_id)):
+            time.sleep(poll_interval)
+    else:
+        while not all(session_finished(s) for s in client.sessions()):
+            time.sleep(poll_interval)
+
+def submit(pg, host='127.0.0.1', port=constants.NODE_DEFAULT_REST_PORT,
+           timeout=60, skip_deploy=False, session_id=None, wait=False,
+           poll_interval=10, status_dump_path=None):
+    """
+    Submits a physical graph for execution. Additionally it waits until the
+    graph has finished executing.
+    """
+    if wait and skip_deploy:
+        raise ValueError('wait implies not skip_deploy')
+    client = _get_client(host, port, timeout)
+    session_id = session_id or "%f" % (time.time())
+    completed_uids = droputils.get_roots(pg)
+    with client:
+        client.create_session(session_id)
+        logger.info("Session %s created", session_id)
+        client.append_graph(session_id, pg)
+        logger.info("Graph for session %s appended", session_id)
+        if not skip_deploy:
+            client.deploy_session(session_id, completed_uids=completed_uids)
+            logger.info("Session %s deployed", session_id)
+    if wait:
+        monitor_sessions(session_id, poll_interval, host, port, timeout, status_dump_path)
