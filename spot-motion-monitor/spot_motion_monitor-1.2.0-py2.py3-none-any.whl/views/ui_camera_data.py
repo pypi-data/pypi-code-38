@@ -1,0 +1,110 @@
+# -*- coding: utf-8 -*-
+
+# Form implementation generated from reading ui file 'forms/camera_data.ui'
+#
+# Created by: PyQt5 UI code generator 5.10.1
+#
+# WARNING! All changes made in this file will be lost!
+
+from PyQt5 import QtCore, QtGui, QtWidgets
+
+class Ui_CameraData(object):
+    def setupUi(self, CameraData):
+        CameraData.setObjectName("CameraData")
+        CameraData.resize(232, 286)
+        self.verticalLayout = QtWidgets.QVBoxLayout(CameraData)
+        self.verticalLayout.setObjectName("verticalLayout")
+        spacerItem = QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        self.verticalLayout.addItem(spacerItem)
+        self.gridLayout_3 = QtWidgets.QGridLayout()
+        self.gridLayout_3.setObjectName("gridLayout_3")
+        self.accumPeriodLabel = QtWidgets.QLabel(CameraData)
+        self.accumPeriodLabel.setObjectName("accumPeriodLabel")
+        self.gridLayout_3.addWidget(self.accumPeriodLabel, 0, 0, 1, 1)
+        self.accumPeriodValueLabel = QtWidgets.QLabel(CameraData)
+        self.accumPeriodValueLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.accumPeriodValueLabel.setObjectName("accumPeriodValueLabel")
+        self.gridLayout_3.addWidget(self.accumPeriodValueLabel, 0, 1, 1, 1)
+        self.verticalLayout.addLayout(self.gridLayout_3)
+        self.gridLayout_2 = QtWidgets.QGridLayout()
+        self.gridLayout_2.setObjectName("gridLayout_2")
+        self.fluxLabel = QtWidgets.QLabel(CameraData)
+        self.fluxLabel.setObjectName("fluxLabel")
+        self.gridLayout_2.addWidget(self.fluxLabel, 0, 0, 1, 1)
+        self.fluxValueLabel = QtWidgets.QLabel(CameraData)
+        self.fluxValueLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.fluxValueLabel.setObjectName("fluxValueLabel")
+        self.gridLayout_2.addWidget(self.fluxValueLabel, 0, 1, 1, 1)
+        self.maxAdcLabel = QtWidgets.QLabel(CameraData)
+        self.maxAdcLabel.setObjectName("maxAdcLabel")
+        self.gridLayout_2.addWidget(self.maxAdcLabel, 1, 0, 1, 1)
+        self.maxAdcValueLabel = QtWidgets.QLabel(CameraData)
+        self.maxAdcValueLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.maxAdcValueLabel.setObjectName("maxAdcValueLabel")
+        self.gridLayout_2.addWidget(self.maxAdcValueLabel, 1, 1, 1, 1)
+        self.verticalLayout.addLayout(self.gridLayout_2)
+        self.gridLayout = QtWidgets.QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
+        self.coordsXLabel = QtWidgets.QLabel(CameraData)
+        self.coordsXLabel.setObjectName("coordsXLabel")
+        self.gridLayout.addWidget(self.coordsXLabel, 0, 1, 1, 1)
+        self.centroidLabel = QtWidgets.QLabel(CameraData)
+        self.centroidLabel.setObjectName("centroidLabel")
+        self.gridLayout.addWidget(self.centroidLabel, 1, 0, 1, 1)
+        self.centroidXLabel = QtWidgets.QLabel(CameraData)
+        self.centroidXLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.centroidXLabel.setObjectName("centroidXLabel")
+        self.gridLayout.addWidget(self.centroidXLabel, 1, 1, 1, 1)
+        self.centroidYLabel = QtWidgets.QLabel(CameraData)
+        self.centroidYLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.centroidYLabel.setObjectName("centroidYLabel")
+        self.gridLayout.addWidget(self.centroidYLabel, 1, 2, 1, 1)
+        self.rmsLabel = QtWidgets.QLabel(CameraData)
+        self.rmsLabel.setObjectName("rmsLabel")
+        self.gridLayout.addWidget(self.rmsLabel, 2, 0, 1, 1)
+        self.rmsXLabel = QtWidgets.QLabel(CameraData)
+        self.rmsXLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.rmsXLabel.setObjectName("rmsXLabel")
+        self.gridLayout.addWidget(self.rmsXLabel, 2, 1, 1, 1)
+        self.rmsYLabel = QtWidgets.QLabel(CameraData)
+        self.rmsYLabel.setMinimumSize(QtCore.QSize(50, 0))
+        self.rmsYLabel.setObjectName("rmsYLabel")
+        self.gridLayout.addWidget(self.rmsYLabel, 2, 2, 1, 1)
+        self.coordsYLabel = QtWidgets.QLabel(CameraData)
+        self.coordsYLabel.setObjectName("coordsYLabel")
+        self.gridLayout.addWidget(self.coordsYLabel, 0, 2, 1, 1)
+        self.verticalLayout.addLayout(self.gridLayout)
+        spacerItem1 = QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        self.verticalLayout.addItem(spacerItem1)
+
+        self.retranslateUi(CameraData)
+        QtCore.QMetaObject.connectSlotsByName(CameraData)
+
+    def retranslateUi(self, CameraData):
+        _translate = QtCore.QCoreApplication.translate
+        CameraData.setWindowTitle(_translate("CameraData", "Form"))
+        self.accumPeriodLabel.setText(_translate("CameraData", "Accumulation Period (s)"))
+        self.accumPeriodValueLabel.setText(_translate("CameraData", " --- "))
+        self.fluxLabel.setText(_translate("CameraData", "Flux (ADU)"))
+        self.fluxValueLabel.setText(_translate("CameraData", " --- "))
+        self.maxAdcLabel.setText(_translate("CameraData", "Maximum (ADU)"))
+        self.maxAdcValueLabel.setText(_translate("CameraData", " --- "))
+        self.coordsXLabel.setText(_translate("CameraData", "x"))
+        self.centroidLabel.setText(_translate("CameraData", "Centroid (pix)"))
+        self.centroidXLabel.setText(_translate("CameraData", " --- "))
+        self.centroidYLabel.setText(_translate("CameraData", " --- "))
+        self.rmsLabel.setText(_translate("CameraData", "RMS (arcsec)"))
+        self.rmsXLabel.setText(_translate("CameraData", " --- "))
+        self.rmsYLabel.setText(_translate("CameraData", " --- "))
+        self.coordsYLabel.setText(_translate("CameraData", "y"))
+
+
+if __name__ == "__main__":
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+    CameraData = QtWidgets.QWidget()
+    ui = Ui_CameraData()
+    ui.setupUi(CameraData)
+    CameraData.show()
+    sys.exit(app.exec_())
+
