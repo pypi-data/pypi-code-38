@@ -1,0 +1,1 @@
+__all__ = ['Class1', 'main']
