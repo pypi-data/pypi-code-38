@@ -1,0 +1,331 @@
+# Copyright 2010-2017, The University of Melbourne
+# Copyright 2010-2017, Brian May
+#
+# This file is part of Karaage.
+#
+# Karaage is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Karaage is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Karaage  If not, see <http://www.gnu.org/licenses/>.
+
+import json
+
+import jwt
+from django.apps import apps
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import login as auth_login
+from django.http import HttpResponseBadRequest, HttpResponseRedirect
+from django.shortcuts import render
+from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.debug import sensitive_post_parameters
+
+import karaage.common as common
+import karaage.common.saml as saml
+from karaage.common.decorators import login_required
+from karaage.common.forms import LoginForm
+from karaage.people.emails import send_reset_password_email
+from karaage.people.forms import PasswordChangeForm, PersonForm
+from karaage.people.models import Person
+
+
+@sensitive_post_parameters('password')
+def login(request, username=None):
+    error = ''
+    redirect_to = reverse('index')
+    if 'next' in request.GET:
+        redirect_to = request.GET['next']
+
+    if request.POST:
+
+        form = LoginForm(request.POST)
+        if form.is_valid():
+
+            username = form.cleaned_data['username']
+            password = form.cleaned_data['password']
+            person = Person.objects.authenticate(
+                username=username, password=password)
+            if person is not None:
+                if person.is_active and not person.is_locked():
+                    auth_login(request, person)
+                    return HttpResponseRedirect(redirect_to)
+                else:
+                    error = 'User account is inactive or locked'
+            else:
+                error = 'Username or password was incorrect'
+    else:
+        form = LoginForm(initial={'username': username})
+
+    return render(
+        template_name='karaage/people/profile_login.html',
+        context={
+            'form': form,
+            'next': redirect_to,
+            'error': error,
+        }, request=request)
+
+
+def saml_login(request):
+    redirect_to = reverse('index')
+    if 'next' in request.GET:
+        redirect_to = request.GET['next']
+    error = None
+    saml_session = saml.is_saml_session(request)
+
+    form = saml.SAMLInstituteForm(request.POST or None)
+    if request.method == 'POST':
+        if 'login' in request.POST and form.is_valid():
+            institute = form.cleaned_data['institute']
+            url = saml.build_shib_url(
+                request, redirect_to,
+                institute.saml_entityid)
+            return HttpResponseRedirect(url)
+        elif 'logout' in request.POST:
+            if saml_session:
+                url = saml.logout_url(request)
+                return HttpResponseRedirect(url)
+            else:
+                return HttpResponseBadRequest("<h1>Bad Request</h1>")
+        else:
+            return HttpResponseBadRequest("<h1>Bad Request</h1>")
+    elif request.user.is_authenticated:
+        error = "You are already logged in."
+    elif saml_session:
+        attrs, error = saml.parse_attributes(request)
+        saml_id = attrs['persistent_id']
+        try:
+            Person.objects.get(saml_id=saml_id)
+            # This should not happen, suggests a fault in the saml middleware
+            error = "Shibboleth session established " \
+                    "but you did not get logged in. "
+        except Person.DoesNotExist:
+            email = attrs['email']
+            try:
+                Person.objects.get(email=email)
+                error = "Cannot log in with this shibboleth account. " \
+                        "Please try using the Karaage login instead."
+            except Person.DoesNotExist:
+                if apps.is_installed("karaage.plugins.kgapplications"):
+                    app_url = reverse('kg_application_new')
+                    return HttpResponseRedirect(app_url)
+                else:
+                    error = "Cannot log in with shibboleth as " \
+                            "we do not recognise your shibboleth id."
+
+    return render(
+        template_name='karaage/people/profile_login_saml.html',
+        context={'form': form, 'error': error, 'saml_session': saml_session, },
+        request=request)
+
+
+def saml_details(request):
+    redirect_to = reverse('kg_profile_saml')
+    saml_session = saml.is_saml_session(request)
+
+    if request.method == 'POST':
+        if 'login' in request.POST:
+            if request.user.is_authenticated:
+                person = request.user
+                institute = person.institute
+                if institute.saml_entityid:
+                    url = saml.build_shib_url(
+                        request, redirect_to,
+                        institute.saml_entityid)
+                    return HttpResponseRedirect(url)
+                else:
+                    return HttpResponseBadRequest("<h1>Bad Request</h1>")
+            else:
+                return HttpResponseBadRequest("<h1>Bad Request</h1>")
+
+        elif 'register' in request.POST:
+            if request.user.is_authenticated and saml_session:
+                person = request.user
+                person = saml.add_saml_data(
+                    person, request)
+                person.save()
+                return HttpResponseRedirect(redirect_to)
+            else:
+                return HttpResponseBadRequest("<h1>Bad Request</h1>")
+
+        elif 'logout' in request.POST:
+            if saml_session:
+                url = saml.logout_url(request)
+                return HttpResponseRedirect(url)
+            else:
+                return HttpResponseBadRequest("<h1>Bad Request</h1>")
+
+        else:
+            return HttpResponseBadRequest("<h1>Bad Request</h1>")
+
+    attrs = {}
+    if saml_session:
+        attrs, _ = saml.parse_attributes(request)
+        saml_session = True
+
+    person = None
+    if request.user.is_authenticated:
+        person = request.user
+
+    return render(
+        template_name='karaage/people/profile_saml.html',
+        context={
+            'attrs': attrs, 'saml_session': saml_session, 'person': person, },
+        request=request)
+
+
+@login_required
+def profile_personal(request):
+
+    person = request.user
+    project_list = person.projects.all()
+    project_requests = []
+    user_applications = []
+    start, end = common.get_date_range(request)
+
+    return render(
+        template_name='karaage/people/profile_personal.html',
+        context=locals(),
+        request=request)
+
+
+@login_required
+def edit_profile(request):
+    person = request.user
+    form = PersonForm(request.POST or None, instance=person)
+    if request.method == 'POST':
+        if form.is_valid():
+            person = form.save()
+            assert person is not None
+            messages.success(
+                request, "User '%s' was edited succesfully" % person)
+            return HttpResponseRedirect(person.get_absolute_url())
+
+    return render(
+        template_name='karaage/people/profile_edit.html',
+        context={'person': person, 'form': form},
+        request=request)
+
+
+@sensitive_post_parameters('new1', 'new2')
+@login_required
+def password_change(request):
+
+    person = request.user
+
+    if request.POST:
+        form = PasswordChangeForm(data=request.POST, person=person)
+
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Password changed successfully")
+            return HttpResponseRedirect(reverse('kg_profile'))
+    else:
+        form = PasswordChangeForm(person=person)
+
+    return render(
+        template_name='karaage/common/profile_password.html',
+        context={'person': person, 'form': form},
+        request=request)
+
+
+@login_required
+def password_request(request):
+    person = request.user
+
+    post_reset_redirect = reverse('kg_profile_reset_done')
+
+    if request.method == "POST":
+        send_reset_password_email(person)
+        return HttpResponseRedirect(post_reset_redirect)
+
+    var = {
+        'person': person,
+    }
+    return render(
+        template_name='karaage/common/profile_password_request.html',
+        context=var,
+        request=request)
+
+
+@login_required
+def password_request_done(request):
+    person = request.user
+    var = {
+        'person': person,
+    }
+    return render(
+        template_name='karaage/common/profile_password_request_done.html',
+        context=var,
+        request=request)
+
+
+@csrf_exempt
+def profile_aaf_rapid_connect(request):
+    person = None
+    verified_jwt = None
+    if request.method == "POST":
+
+        if 'assertion' not in request.POST:
+            return HttpResponseBadRequest()
+
+        assertion = request.POST['assertion']
+
+        try:
+            # Verifies signature and expiry time
+            verified_jwt = jwt.decode(
+                assertion,
+                settings.ARC_SECRET,
+                audience=settings.ARC_AUDIENCE,
+                issuer=settings.ARC_ISSUER,
+            )
+            messages.success(request, "It really worked")
+        except jwt.PyJWTError as e:
+            messages.error(request, f"Error: Could not decode token: {e}")
+
+        request.session['arc_jwt'] = verified_jwt
+
+        # We are seeing this user for the first time in this session, attempt
+        # to authenticate the user.
+        if verified_jwt:
+            sub = verified_jwt.get('sub')
+            if sub:
+                try:
+                    person = Person.objects.get(saml_id=sub)
+                except Person.DoesNotExist:
+                    pass
+
+        if person is not None:
+            # We must set the model backend here manually as we skip
+            # the call to auth.authenticate().
+            request.user = person
+            request.user.backend = 'django.contrib.auth.backends.ModelBackend'
+            auth_login(request, person)
+
+    session_jwt = request.session.get('arc_jwt', None)
+
+    if verified_jwt:
+        verified_jwt = json.dumps(verified_jwt, indent=4)
+
+    if session_jwt:
+        session_jwt = json.dumps(session_jwt, indent=4)
+
+    var = {
+        'arc_url': settings.ARC_URL,
+        'person': person,
+        'verified_jwt': verified_jwt,
+        'session_jwt': session_jwt,
+    }
+    return render(
+        template_name='karaage/people/profile_aaf_rapid_connect.html',
+        context=var,
+        request=request
+    )
