@@ -1,0 +1,2 @@
+class HatanoError(Exception):
+    pass
