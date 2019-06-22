@@ -1,0 +1,1 @@
+from teneto.communitydetection.static.modularity_based_clustering import girvan_newman, traag_bruggeman
