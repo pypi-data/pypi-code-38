@@ -1,0 +1,58 @@
+from mud_engine.npc import NPC
+from mud_engine.geography import Geography
+from mud_engine.engine import MUDEngine
+from mud_engine.geography import GeographyFactory
+from mud_engine.help import Help
+
+class GuardianMUD(MUDEngine):
+
+    name = "Guardian MUD"
+
+    def run(self):
+
+        from mud_engine.communication import Brown
+        from mud_engine.communication import NoColor
+        from mud_engine.help import HelpInterface
+
+        orig_default_help = HelpInterface.default_help
+
+        # Let's update the default help behavior to include some Guardian MUD details AND do the default display
+        def new_default_help(self):
+            msg = "Guardian MUD is now up and running!\r\n\r\n"
+            return msg + orig_default_help(self)
+
+        HelpInterface.default_help = new_default_help
+
+        Help("guardian", "Guardian is a mud about trying to get past a guardian!")
+
+        # Lets override the default geography
+        starting_geo = GeographyFactory.create_geography(
+            0,
+            0,
+            0,
+            "A country road",
+            "You stand on a winding country road, dividing a grassy field",
+        )
+        bridge_ent_geo = GeographyFactory.create_geography(
+            *starting_geo.get_direction_coordinates("north"),
+            "The bridge entrance",
+            "You've come to the end of a country road. Up ahead there's a sign and bridge crossing a river",
+            entrance_descriptions = {
+                "default": "",
+                "north": "A bridge crossing a river\r\n",
+            }
+        )
+
+        super().run()
+
+if __name__ == "__main__":
+
+    import sys
+    import logging
+
+    logging.basicConfig(level=logging.DEBUG)
+    mud = GuardianMUD()
+    mud.admins.append("ben")
+    mud.run()
+
+    sys.exit(0)
