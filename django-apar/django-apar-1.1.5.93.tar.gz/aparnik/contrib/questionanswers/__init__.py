@@ -1,0 +1,1 @@
+default_app_config = 'aparnik.contrib.questionanswers.apps.QuestionAnswerConfig'
