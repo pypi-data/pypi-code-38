@@ -1,0 +1,2 @@
+DEFAULT_TARGET_HEADER = 'X-Reverse-Forward-Proxy-Target'
+ENV_SSL_CERT_FILE = 'SSL_CERT_FILE'
