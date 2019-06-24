@@ -1,0 +1,1 @@
+from datalogue.version import __version__
