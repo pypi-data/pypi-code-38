@@ -1,0 +1,10 @@
+__title__ = 'news2play'
+__description__ = 'News for play.'
+__url__ = 'http://xxx.xxx'
+__version__ = '0.1.0'
+__build__ = 0x000100
+__author__ = 'xxx xxx'
+__author_email__ = 'xxx@xxx.xxx'
+__license__ = 'MIT'
+__copyright__ = 'Copyright 2019 xxx xxx'
+# __cake__ = u'\u2728 \U0001f370 \u2728'
