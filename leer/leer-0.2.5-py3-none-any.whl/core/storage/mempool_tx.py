@@ -1,0 +1,156 @@
+from leer.core.primitives.transaction_skeleton import TransactionSkeleton
+from leer.core.lubbadubdub.transaction import Transaction
+from leer.core.utils import ObliviousDictionary
+from leer.core.primitives.block import generate_block_template, build_tx_from_skeleton
+from leer.core.parameters.dynamic import next_reward
+from leer.core.parameters.constants import coinbase_maturity, dev_reward_maturity
+from leer.core.parameters.fee_policy import FeePolicyChecker
+from leer.core.lubbadubdub.ioput import IOput, dev_reward_address
+
+class MempoolTx: #Should be renamed to Mempool since it now holds block_template info
+  '''
+    This manager holds information about known unconfirmed transaction and provides it for generation of next block and relay, also it holds (unsolved) block templates.
+    self.transactions contains skeletons of known transactions (before merging)
+    self.current_set containt transactions which are 1) downloaded and 2) do not contradict with each other
+    self.short_memory_of_mined_transaction contains transactions which were mined in the last few blocks (we include tx to short_memory_of_mined_transaction if all tx.inputs and tx.outputs were in block_tx). It is necessary for safe rollbacks without
+    losing transactions.
+  '''
+  def __init__(self, storage_space, fee_policy_config, mining_config):
+    self.transactions = []
+    self.built_tx = {}
+    self.current_set = []
+    self.combined_tx = None
+    self.short_memory_of_mined_transaction = {}
+    self.storage_space = storage_space
+    self.storage_space.register_mempool_tx(self)
+    self.block_templates = ObliviousDictionary(sink_delay=600)
+    self.work_block_assoc = ObliviousDictionary(sink_delay=600)
+    self.fee_policy_checker = FeePolicyChecker(fee_policy_config)
+    self.reuse_last_generated_block = mining_config.get("reuse_generated_template", True)
+    self.last_generated_block = None
+    self.mining_config = mining_config
+
+  def update_current_set(self, rtx):
+    '''
+      For now we have quite a simple and dirty algo:
+      1) sort all tx by input_num (bigger first)
+      2) iterate through tx and add transactions to current_set if 
+         a) it is downloaded
+         b) it is valid (otherwise delete from self.transactions)
+         c) doesn't contradict with any other tx in the set
+    '''
+    self.last_generated_block = None
+    self.transactions = sorted(self.transactions, key = lambda x: len(x.input_indexes), reverse=True)
+    tx_to_remove_list = []
+    self.current_set = []
+    txos_storage = self.storage_space.txos_storage
+    excesses_storage = self.storage_space.excesses_storage
+    merged_tx = Transaction(txos_storage=txos_storage, excesses_storage=excesses_storage)
+    for tx_skeleton in self.transactions:
+      #TODO build_tx_from_skeleton should raise distinctive exceptions
+      downloaded = True
+      for _i in tx_skeleton.input_indexes:
+        if not txos_storage.confirmed.has(_i, rtx=rtx):
+          downloaded = False
+      for _o in tx_skeleton.output_indexes:
+        if not _o in txos_storage.mempool:
+          downloaded = False
+      if not downloaded:
+        continue
+      try:
+        if tx_skeleton.serialize() in self.built_tx:
+          full_tx = self.built_tx[tx_skeleton.serialize()]
+        else:
+          if tx_skeleton.tx:
+            full_tx = tx_skeleton.tx
+          else:
+            full_tx = build_tx_from_skeleton(tx_skeleton, self.storage_space.txos_storage,  self.storage_space.excesses_storage, self.storage_space.blockchain.current_height(rtx=rtx) +1, block_version = 1, rtx=rtx)
+            tx_skeleton.tx=full_tx
+          self.built_tx[tx_skeleton.serialize()]=full_tx
+      except Exception as e:
+        tx_to_remove_list.append(tx_skeleton)
+        continue
+      try:
+        if self.fee_policy_checker.check_tx(full_tx):
+          merged_tx = merged_tx.merge(full_tx, rtx=rtx)
+          self.current_set.append(tx_skeleton)
+      except Exception as e:
+        pass #it is ok, tx contradicts with other transactions in the pool
+    for tx in tx_to_remove_list:
+      self.transactions.remove(tx)
+      self.built_tx.pop(tx.serialize(), None)
+    self.combined_tx = merged_tx
+
+  def update(self, rtx, reason):
+    self.update_current_set(rtx=rtx)
+
+  def give_tx(self):
+    return self.combined_tx
+
+  def give_tx_skeleton(self):    
+    return TransactionSkeleton(tx = self.combined_tx)
+
+  def add_tx(self,tx, rtx):
+    if isinstance(tx, Transaction):
+      tx_skel = TransactionSkeleton(tx=tx)
+      self.built_tx[tx_skel.serialize()]=tx
+      self.transactions.append(tx_skel)
+    elif isinstance(tx,TransactionSkeleton):
+      self.transactions.append(tx)
+    else:
+      raise
+    self.update(rtx=rtx, reason="Tx addition")
+
+  def give_block_template(self, coinbase_address, wtx):
+    current_tip = self.storage_space.blockchain.current_tip(rtx=wtx)
+    if self.reuse_last_generated_block and self.last_generated_block and self.last_generated_block[0]==current_tip:
+      return self.last_generated_block[1]
+    transaction_fees = self.give_tx().relay_fee if self.give_tx() else 0
+    value, dev_reward = next_reward(current_tip, self.storage_space.headers_storage, rtx=wtx)
+    value+= transaction_fees
+    coinbase = IOput()
+    coinbase.fill(coinbase_address, value, relay_fee=0, coinbase=True, lock_height=self.storage_space.blockchain.current_height(rtx=wtx) + 1 + coinbase_maturity)
+    coinbase.generate()
+    self.storage_space.txos_storage.mempool[coinbase.serialized_index]=coinbase
+    tx=Transaction(txos_storage = self.storage_space.txos_storage, excesses_storage=self.storage_space.excesses_storage)
+    tx.add_coinbase(coinbase)
+    if dev_reward>0:
+      dev_reward_output = IOput()
+      dev_reward_output.fill(dev_reward_address, dev_reward, relay_fee=0, coinbase=False, lock_height=self.storage_space.blockchain.current_height(rtx=wtx) + 1 + dev_reward_maturity)
+      dev_reward_output.version = 1
+      dev_reward_output.generate(exp=-1)
+      self.storage_space.txos_storage.mempool[dev_reward_output.serialized_index]=dev_reward_output
+      tx.add_dev_reward_output(dev_reward_output)
+    tx.compose_block_transaction(rtx=wtx)
+    dev_reward_vote = self.mining_config.get("dev_reward", 0)    
+    try:
+      if dev_reward_vote<0:
+        dev_reward_vote = 0
+      elif dev_reward_vote>=dev_reward_maximal_share:
+        dev_reward_vote=255
+      else:
+        dev_reward_vote = int(255*dev_reward_vote/dev_reward_maximal_share)
+      dev_vote = dev_reward_vote.to_bytes(1, "big")
+    except:
+      dev_vote=b"\x00"
+    block = generate_block_template(tx, self.storage_space, wtx=wtx, dev_reward_vote=dev_vote)
+    self.add_block_template(block)
+    self.last_generated_block = (current_tip, block)
+    return block
+  
+  def give_mining_work(self, coinbase_address, wtx):
+    block_template = self.give_block_template(coinbase_address, wtx)
+    partial_hash = block_template.header.partial_hash
+    target = block_template.header.target.to_bytes(32, "big")
+    self.work_block_assoc[partial_hash] = block_template
+    return partial_hash, target, block_template.header.height
+  
+  def add_block_template(self, block):
+    self.block_templates[block.header.template] = block
+
+  def get_block_by_header_solution(self, header):
+    if not header.template in self.block_templates:
+      raise Exception("Unknown template")
+    block = self.block_templates[header.template]
+    block._header = header
+    return block #This block is already ready to be added to blockchain (PoW is not checked, though)
