@@ -1,0 +1,3 @@
+class BaseLoader(object):
+    
+    pass
