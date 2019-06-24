@@ -1,0 +1,1 @@
+from .test_frontpage import TestFrontpage
