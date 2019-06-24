@@ -1,0 +1,65 @@
+from .base import ZmBase
+import cv2
+import sys
+import os
+
+class ZmFace(ZmBase):
+
+    def __init__(self, imagePath):
+        print("1")
+        self.option = []
+        return super().__init__(imagePath)
+
+    def face_num(self, option):
+    
+        # Get user supplied values
+        # imagePath = sys.argv[1]
+        # imagePath = self.imagePath
+        
+        self.option = option
+
+        self.getHaarcascadeFile()
+
+        cascPath = "haarcascade_frontalface_default.xml"
+
+        # Create the haar cascade
+        faceCascade = cv2.CascadeClassifier(cascPath)
+
+        # Read the image
+        image = cv2.imread(self.imagePath)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Detect faces in image
+        faces = faceCascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30)
+        )
+
+        print("Found {0} Faces! in the Picture".format(len(faces)))
+
+        # judge the items
+        for item in self.option:
+
+            if item == '':
+                flag = 'Null'
+            elif item == 'Hide':
+                flag = 'Hide'
+
+        if flag == 'Null':
+            # Draw a rectangle around the faces
+            for(x, y, w, h) in faces:
+                cv2.rectangle(image, (x,y), (x+w,y+w), (0, 255, 0), 2)
+
+            cv2.imshow("Faces found", cv2.resize(image,(1024,768)))
+            cv2.waitKey(0)
+
+            pt_flag = self.get_platform_judge()
+        elif flag == 'Hide':
+            print("Without imshow")
+        
+        if(pt_flag==1):
+            os.system("rm -rf haarcascade_frontalface_default.xml")
+        else:
+            os.system("del haarcascade_frontalface_default.xml")
