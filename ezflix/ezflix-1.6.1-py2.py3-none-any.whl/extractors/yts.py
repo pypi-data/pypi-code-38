@@ -1,0 +1,57 @@
+import requests
+from datetime import datetime
+from pprint import pprint
+
+def _build_obj(req, quality, limit, debug):
+    if 'movies' not in req['data'] or not req['status'] == 'ok' or not req['data']['movie_count'] > 0:
+        return
+    arr, count = [], 1
+    for r in req['data']['movies']:
+        if 'torrents' in r:
+            for torrent in r['torrents']:
+                title = '%s (%s) (%s)' % (r['title'], r['year'], torrent['quality'])
+                obj = {'id': count,
+                       'yts_id': r['id'],
+                       'title': title,
+                       'magnet': torrent['url'],
+                       'seeds': torrent['seeds'],
+                       'peers': torrent['peers'],
+                       'overview': r['synopsis'],
+                       'trailer': r['yt_trailer_code'],
+                       'rating' : r['rating'],
+                       'release_date': datetime.strptime(torrent['date_uploaded'], '%Y-%m-%d %H:%M:%S').date()}
+                if quality is not None:
+                    if quality == torrent['quality']:
+                        arr.append(obj)
+                        count += 1
+                else:
+                    arr.append(obj)
+                    count += 1
+    if debug:
+        pprint(arr)
+    return arr[0:limit]
+
+def find_similar(movie_id, quality=None, limit=20):
+    req = requests.get('https://yts.ag/api/v2/movie_suggestions.json', params={'movie_id':movie_id})
+    req = req.json()
+    return _build_obj(req, quality, limit)
+   
+
+def yts(query_term, quality=None, limit=20, minimum_rating=4, sort_by='date_added', sort_order='asc', page=1, debug=False):
+    params = {
+        'query_term': query_term,
+        'sort_by': sort_by,
+        'sort_order': sort_order,
+        'limit': limit,
+        'quality': quality,
+        'minimum_rating': minimum_rating,
+        'page': page
+
+    }
+    req = requests.get('https://yts.ag/api/v2/list_movies.json', params=params)
+    if debug:
+        print(req.status_code)
+    req = req.json()
+    if debug:
+        pprint(req)
+    return _build_obj(req, quality, limit, debug)
