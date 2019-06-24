@@ -1,0 +1,1 @@
+USER_NESTED_FIELDS = ['jobOffers']
