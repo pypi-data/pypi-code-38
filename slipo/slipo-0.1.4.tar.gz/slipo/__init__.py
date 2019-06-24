@@ -1,0 +1,3 @@
+"""
+SLIPO API Python client
+"""
