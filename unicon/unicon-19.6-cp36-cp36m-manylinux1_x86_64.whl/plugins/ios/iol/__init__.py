@@ -1,0 +1,18 @@
+__copyright__ = 'Copyright (c) 2019, Cisco Systems Inc.'
+__author__ = 'Difu Hu <difhu@cisco.com>'
+
+from unicon.plugins.generic import GenericDualRPConnection, HAServiceList
+
+from .service_implementation import IosIolSwitchoverService
+
+
+class IosIolHAServiceList(HAServiceList):
+    def __init__(self):
+        super().__init__()
+        self.switchover = IosIolSwitchoverService
+
+
+class IosIolDualRPConnection(GenericDualRPConnection):
+    os = 'ios'
+    series = 'iol'
+    subcommand_list = IosIolHAServiceList
