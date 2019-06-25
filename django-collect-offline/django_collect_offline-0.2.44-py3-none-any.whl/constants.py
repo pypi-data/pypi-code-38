@@ -1,0 +1,5 @@
+CLIENT = "Client"
+SERVER = "Server"
+INSERT = "I"
+UPDATE = "U"
+DELETE = "D"
