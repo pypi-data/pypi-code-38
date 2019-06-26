@@ -1,0 +1,337 @@
+#!/usr/bin/env python
+# flake8: noqa: E402
+
+"""
+A simple load tester for IRRd.
+Sends random !g queries.
+"""
+import time
+
+import argparse
+import random
+import socket
+
+
+def main(host, port, count):
+    queries = [b'!!\n']
+    for i in range(count):
+        asn = random.randrange(1, 50000)
+        query = f'!gAS{asn}\n'.encode('ascii')
+        queries.append(query)
+    queries.append(b'!q\n')
+
+    s = socket.socket()
+    s.settimeout(600)
+    s.connect((host, port))
+
+    queries = b"""!!
+!aAS-PTISP
+!aAS-QRATOR
+!aAS-QTEL-SET
+!aAS-QTS-11767
+!aAS-QTS-20141
+!aAS-QTS-394968
+!aAS-QTS-40107
+!aAS-QTS-40913
+!aAS-QTS-4136
+!aAS-QTS-53907
+!aAS-QWEST
+!aAS-RACE
+!aAS-RACKCORP
+!aAS-RACKSENSE
+!aAS-RACKSENSE-IPV6
+!aAS-RACKSPACE
+!aAS-PHONOSCOPE
+!aAS-PHYBER
+!aAS-PLAYONLINE
+!aAS-PLIXDC-MIX
+!aAS-PLUSLINE
+!aAS-PNAPACS
+!aAS-PNAPAMS004
+!aAS-PNAPCHG
+!aAS-PNAPDALZ
+!aAS-PNAPFRA002
+!aAS-PNAPHKG001
+!aAS-PNAPIRLAB
+!aAS-PNAPLAX
+!aAS-PNAPLON
+!aAS-PNAPMIA
+!aAS-PNAPNYM
+!aAS-PNAPOSK001
+!aAS-PNAPPAR
+!aAS-PNAPSEF
+!aAS-PNAPSJE
+!aAS-PNAPSYD001
+!aAS-PNAPTOK
+!aAS-PNAPWDC002
+!aAS-PNW-GIGAPOP-I
+!aAS-POBOX
+!aAS-POCKETINET
+!aAS-PRIMACOM-ISP
+!aAS-PRIMEXM-US
+!aAS-PRLSS
+!aAS-PROBENETWORKS
+!aAS-PROBENETWORKS-v6
+!aAS-PROLE
+!aAS-PROLOCATION
+!aAS-PROLOCATION-V6
+!aAS-PROPER
+!aAS-PROPER6
+!aAS-PROTEXIA
+!aAS-PSINET-US
+!aAS-PSLIGHTWAVE
+!aAS-PSN-ID
+!aAS-PTA
+!aAS-INFORELAY
+!aAS-INFOSPHERE
+!aAS-INFOWEB
+!aAS-INFOWEB-V6
+!aAS-INIT7
+!aAS-INNET
+!aAS-INOC
+!aAS-INSTART
+!aAS-INTERACTIVE3D
+!aAS-INTERDOMINIOS
+!aAS-INTERNETONE_CH
+!aAS-INTEROUTE
+!aAS-INTERVIA
+!aAS-IOKO
+!aAS-IOVATION
+!aAS-IP-MAX
+!aAS-IP-MAX-V6
+!aAS-IPACCT
+!aAS-IPB
+!aAS-IPIFONY
+!aAS-IPTRANSIT
+!aAS-IQNETWORKS
+!aAS-IRON
+!aAS-IRONDNS
+!aAS-IRONDNS-V6
+!aAS-IS
+!aAS-ISPNET
+!aAS-ITANDTEL
+!aAS-ITANDTEL-IPV6
+!aAS-ITHOLDINGSCUSTOMERS
+!aAS-ITSTG
+!aAS-IUSA
+!aAS-IVANET-ASIA
+!aAS-IVZ
+!aAS-IXREACH
+!aAS-JAGUAR
+!aAS-JAGUAR-V6
+!aAS-JANIS
+!aAS-JOINTTRANSIT
+!aAS-JPRS
+!aAS-JUMP
+!aAS-KAKAO
+!aAS-KCOMSPN
+!aAS-KDDI6
+!aAS-KDDIDMPEER4
+!aAS-KEYCOM
+!aAS-KINGSTONUK
+!aAS-KINX-TRANSIT
+!aAS-KMS
+!aAS-KOMTEL
+!aAS-KORNET
+!aAS-KPNv6
+!aAS-KPTNETWORK
+!aAS-KQ
+!aAS-KRYPTON
+!aAS-KUENTOS-TRANSIT
+!aAS-LAGIS
+!aAS-LAGIS6
+!aAS-LAHAI-SG
+!aAS-LARENF
+!aAS-LATINIP
+!aAS-LCHOST
+!aAS-LEASEWEB
+!aAS-LEASEWEB-APAC
+!aAS-LEASEWEB-NL
+!aAS-LIBERTYI
+!aAS-LINKAGE
+!aAS-LINKEDIN-TRANSIT
+!aAS-LINODE
+!aAS-LINXTELECOM
+!aAS-LIQUID
+!aAS-LONSDALESOLWAY
+!aAS-LOSNETTOS
+!aAS-LOSNETTOS-IPv6
+!aAS-LOTTOMATICA
+!aAS-LROOT
+!aAS-LSNET
+!aAS-LUME
+!aAS-LUMOS
+!aAS-LUXNETWORK
+!aAS-LWL
+!aAS-LeaseNet-Customers
+!aAS-MACROLYNX
+!aAS-MACTELECOM
+!aAS-MAEHDROS
+!aAS-MANDA
+!aAS-MCNET
+!aAS-MEDIASAT
+!aAS-MEDIAWEB-NET
+!aAS-MEGADIAL
+!aAS-MEGASPACE
+!aAS-MELBICOM
+!aAS-MEON
+!aAS-MERULA
+!aAS-MESH
+!aAS-METROCAST
+!aAS-METRONETUK
+!aAS-METROSWITCH
+!aAS-MEX
+!aAS-MEX6
+!aAS-MF-MGSM
+!aAS-MFE-TRANSIT
+!aAS-MHDD
+!aAS-MICHNET
+!aAS-MICROSOFT
+!aAS-MIDCO
+!aAS-MISTRAL
+!aAS-MITENE
+!aAS-MK-NETZDIENSTE
+!aAS-MK-NETZDIENSTE-V6
+!aAS-MNETDE
+!aAS-MNS
+!aAS-MOBILY
+!aAS-MOHAWK-TRANSIT
+!aAS-MOJI
+!aAS-MTCCOMM
+!aAS-MTEL-MO
+!aAS-MYNET
+!aAS-MYTHIC
+!aAS-NBIP
+!aAS-NBIP6
+!aAS-NCOM
+!aAS-NCSC-DNS
+!aAS-NET1OUT
+!aAS-NET2ONE
+!aAS-NETACTUATE
+!aAS-NETASSIST
+!aAS-NETCONNEX
+!aAS-NETERRA-INT
+!aAS-NETFORTRIS
+!aAS-NETGUARDBG
+!aAS-NETHER
+!aAS-NETIRD
+!aAS-NETIRD-V6
+!aAS-NETLOGICS
+!aAS-NETNOD
+!aAS-NETRIVER
+!aAS-NETROUTING
+!aAS-NETROUTING6
+!aAS-NETUSE
+!aAS-NETVISIONTEL
+!aAS-NETWISE
+!aAS-NETWORKPLATFORMS
+!aAS-NETWORXBG
+!aAS-NEWMEDIAEXPRESS
+!aAS-NEXGEN
+!aAS-NEXICA
+!aAS-NEXICOM
+!aAS-NEXTGLOBALSERV
+!aAS-NEXTGLOBALSERV6
+!aAS-NEXTLAYER
+!aAS-NEXTLAYER-V6
+!aAS-NEXUS-TELECOM
+!aAS-NFCR
+!aAS-NFL
+!aAS-NFORCE
+!aAS-NHN
+!aAS-NHN-TECHORUS
+!aAS-NIANDC
+!aAS-NIANET
+!aAS-NIANETV6
+!aAS-NITEL-TRANSIT
+!aAS-NOANET-PEERING
+!aAS-NODE4
+!aAS-NOELC
+!aAS-NOMICAL
+!aAS-NOMINET-NS
+!aAS-NOMINET-RES1
+!aAS-NOMINUM-SKYE
+!aAS-NOOR
+!aAS-NORDUNET
+!aAS-NORIS
+!aAS-NOVATEL
+!aAS-NSCS-NET
+!aAS-NSI-DC
+!aAS-NSL-CUSTOMERS
+!aAS-NSONE
+!aAS-NT
+!aAS-NTT-CISCO
+!aAS-NTTCOMWARE
+!aAS-NTTNETID
+!aAS-NULL
+!aAS-NUWAVE
+!aAS-NYNEX
+!aAS-Novatectelecom
+!aAS-OBENETWORK
+!aAS-OC-ASSET
+!aAS-OCG
+!aAS-OCN-ALL
+!aAS-OCN-ALL-V6
+!aAS-ODN
+!aAS-ODN-V6
+!aAS-ONERINGNETWORKS
+!aAS-ONO-IPV6
+!aAS-ONO-UPS
+!aAS-ONYX
+!aAS-OPAL
+!aAS-OPENCARRIER
+!aAS-OPENCARRIER6
+!aAS-OPENDNS
+!aAS-OPENTRANSIT
+!aAS-OPERA
+!aAS-OPERA-ASIA
+!aAS-OPTINET
+!aAS-ORBITAL
+!aAS-OTL
+!aAS-OVH
+!aAS-OZ-ITHS
+!aAS-PACIFICNET
+!aAS-PACNET-DOWNSTREAM
+!aAS-PALTEL
+!aAS-PANTEL
+!aAS-PARKER
+!aAS-PARTAN
+!aAS-PAVLOV
+!aAS-PAXIO
+!aAS-PAYPAL
+!aAS-PCH
+!aAS-PEGTECHCUSTOMERS
+!aAS-PENGUIN
+!aAS-PEOPLESCOM
+!aAS-PHIBEE-TELECOM
+!aAS-PHOENIXNAP
+!q""".splitlines()
+
+    queries_str = b'\n'.join(queries) + b'\n'
+    s.sendall(queries_str)
+
+    start_time = time.perf_counter()
+    while 1:
+        data = s.recv(1024*1024)
+        if not data:
+            break
+
+    count = len(queries) - 1
+    elapsed = time.perf_counter() - start_time
+    time_per_query = elapsed / count * 1000
+    qps = int(count / elapsed)
+    print(f'Ran {count} queries in {elapsed}s, time per query {time_per_query} ms, {qps} qps')
+
+
+if __name__ == '__main__':  # pragma: no cover
+    description = """A simple load tester for IRRd. Sends random !g queries."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('--count', dest='count', type=int, default=5000,
+                        help=f'number of queries to run (default: 5000)')
+    parser.add_argument('host', type=str,
+                        help='hostname of instance')
+    parser.add_argument('port', type=int,
+                        help='port of instance')
+    args = parser.parse_args()
+
+    main(args.host, args.port, args.count)
