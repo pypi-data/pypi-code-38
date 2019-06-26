@@ -1,0 +1,1 @@
+from .dynamodict import DynamoDictionary
