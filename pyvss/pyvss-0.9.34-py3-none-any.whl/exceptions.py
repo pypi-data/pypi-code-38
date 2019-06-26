@@ -1,0 +1,2 @@
+class VssError(RuntimeError):
+    pass
