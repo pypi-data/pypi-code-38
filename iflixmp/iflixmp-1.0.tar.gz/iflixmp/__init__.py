@@ -1,0 +1,2 @@
+import iflixmp.iflixmp
+main()
