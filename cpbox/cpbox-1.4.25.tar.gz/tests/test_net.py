@@ -1,0 +1,17 @@
+import unittest
+from cpbox.tool import net
+
+class TestNet(unittest.TestCase):
+
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+    def test_all(self):
+        ip = net.get_ip_address('docker0')
+        print(ip)
+
+if __name__ =='__main__':
+    unittest.main()
