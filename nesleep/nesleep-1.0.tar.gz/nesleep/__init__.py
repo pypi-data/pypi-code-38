@@ -1,0 +1,1 @@
+from nesleep.nesleep import disableSleep, sleep
