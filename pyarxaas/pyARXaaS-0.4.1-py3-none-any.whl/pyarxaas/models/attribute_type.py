@@ -1,0 +1,9 @@
+from enum import Enum
+
+
+class AttributeType(Enum):
+    IDENTIFYING = "IDENTIFYING"
+    QUASIIDENTIFYING = "QUASIIDENTIFYING"
+    SENSITIVE = "SENSITIVE"
+    INSENSITIVE = "INSENSITIVE"
+
