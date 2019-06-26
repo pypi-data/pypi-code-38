@@ -1,0 +1,3 @@
+
+def ping():
+    print("Ping!")
