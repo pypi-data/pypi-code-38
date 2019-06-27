@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+
+# Default Keysight DAQ 34972A parameters
+DAQ34972A_ID = "Agilent Technologies,34972A"
+DAQ34972A_PORT = 5025
+DAQ34972A_TIMEOUT = 3.0
+
+# Default Tektronix DMM 4050 parameters
+DMM4050_ID = "TEKTRONIX,DMM4050"
+DMM4050_PORT = 3490
+DMM4050_TIMEOUT = 3.0
+
+# Default Keysight DMM 3446(0|1)A parameters
+DMM34461A_ID = "Technologies,3446"
+DMM34461A_PORT = 5025
+DMM34461A_TIMEOUT = 3.0
+DMM34461A_VID = 0x2a8d
+DMM34461A_PID = 0x1601
+
+# Default Agilent/Keysight 532x0A counter parameter
+CNT532X0A_ID = "Technologies,532"
+CNT532X0A_PORT = 5025
+CNT532X0A_TIMEOUT = 3.0
+CNT532X0A_VID = 0x0957
+CNT532X0A_PID = 0x1707
