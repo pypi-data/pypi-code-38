@@ -1,0 +1,21 @@
+class Team:
+
+    def __init__(self, json):
+        self.abbreviated_name = json["abbreviatedName"]
+        self.accounts = json["accounts"]
+        self.address_country = json["addressCountry"]
+        self.attributes = json["attributes"]
+        self.attributes_version = json["attributesVersion"]
+        self.available_languages = json["availableLanguages"]
+        self.game = json["game"]
+        self.handle = json["handle"]
+        self.home_location = json["homeLocation"]
+        self.icon = json["icon"]
+        self.id = json["id"]
+        self.logo = json["logo"]
+        self.name = json["name"]
+        self.owl_division = json["owl_division"]
+        self.players = json["players"]
+        self.primary_color = json["primaryColor"]
+        self.secondary_color = json["secondaryColor"]
+        self.secondary_photo = json["secondaryPhoto"]
