@@ -1,0 +1,7 @@
+from .death_report_admin import DeathReportAdmin
+from .death_report_tmg_admin import DeathReportTmgAdmin
+from .onschedule_admin import OnScheduleAdmin
+from .onschedule_w10_admin import OnScheduleW10Admin
+from .protocol_deviation_violation_admin import ProtocolDeviationViolationAdmin
+from .study_termination_conclusion_admin import StudyTerminationConclusionAdmin
+from .study_termination_conclusion_w10_admin import StudyTerminationConclusionW10Admin
