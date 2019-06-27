@@ -1,0 +1,7 @@
+__title__ = 'street'
+__description__ = 'Scrape earnings history from StreetInsider.com'
+__url__ = 'https://github.com/kndo/street'
+__version__ = '0.1.1'
+__author__ = 'Khanh Do'
+__author_email__ = 'dokhanh@gmail.com'
+__license__ = 'MIT License'
