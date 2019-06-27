@@ -1,0 +1,5 @@
+from staplesremoval.staples_detector import *
+from staplesremoval.inpainting import *
+from staplesremoval.remove_staples import *
+from staplesremoval.trapezoidal_fuzzy_color_segmentation import trapezoidal_fuzzy_color_segmentation
+from staplesremoval.triangular_fuzzy_color_segmentation import triangular_fuzzy_color_segmentation
