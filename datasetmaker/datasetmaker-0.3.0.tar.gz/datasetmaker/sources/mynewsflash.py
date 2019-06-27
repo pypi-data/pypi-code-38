@@ -1,0 +1,2 @@
+class MyNewsFlash():
+    pass
