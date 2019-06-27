@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+#
+# lightboxtoolbar.py - The LightBoxToolBar class.
+#
+# Author: Paul McCarthy <pauldmccarthy@gmail.com>
+#
+"""This module provides the :class:`LightBoxToolBar` class, which is a
+:class:`.ControlToolBar` for use with the :class:`.LightBoxPanel`.
+"""
+
+
+import wx
+
+import fsleyes_props                 as props
+
+import fsleyes.controls.controlpanel as ctrlpanel
+import fsleyes.toolbar               as fsltoolbar
+import fsleyes.actions               as actions
+import fsleyes.icons                 as fslicons
+import fsleyes.tooltips              as fsltooltips
+import fsleyes.strings               as strings
+
+
+class LightBoxToolBar(ctrlpanel.ControlToolBar):
+    """The ``LightBoxToolBar`` is a :class:`.ControlToolBar` for use with the
+    :class:`.LightBoxPanel`. A ``LightBoxToolBar`` looks something like this:
+
+
+    .. image:: images/lightboxtoolbar.png
+       :scale: 50%
+       :align: center
+
+
+    The ``LightBoxToolBar`` allows the user to control important parts of the
+    :class:`.LightBoxPanel` display, and also to display a
+    :class:`.CanvasSettingsPanel`, which allows control over all aspects of a
+    ``LightBoxPanel``.
+    """
+
+
+    def __init__(self, parent, overlayList, displayCtx, frame, lb):
+        """Create a ``LightBoxToolBar``.
+
+        :arg parent:      The :mod:`wx` parent object.
+        :arg overlayList: The :class:`.OverlayList` instance.
+        :arg displayCtx:  The :class:`.DisplayContext` instance.
+        :arg frame:       The :class:`.FSLeyesFrame` instance.
+        :arg lb:          The :class:`.LightBoxPanel` instance.
+        """
+
+        ctrlpanel.ControlToolBar.__init__(self,
+                                          parent,
+                                          overlayList,
+                                          displayCtx,
+                                          frame,
+                                          height=24,
+                                          kbFocus=True)
+
+        self.lightBoxPanel = lb
+
+        lbOpts = lb.sceneOpts
+
+        coronalIcon          = 'coronalSlice24'
+        coronalHighlightIcon = 'coronalSliceHighlight24'
+
+        icons = {
+            'screenshot'                : fslicons.findImageFile('camera24'),
+            'movieMode'                 : [
+                fslicons.findImageFile('movieHighlight24'),
+                fslicons.findImageFile('movie24')],
+            'toggleCanvasSettingsPanel' : [
+                fslicons.findImageFile('spannerHighlight24'),
+                fslicons.findImageFile('spanner24')],
+
+            'zax' : {
+                0 : [fslicons.findImageFile('sagittalSliceHighlight24'),
+                     fslicons.findImageFile('sagittalSlice24')],
+                1 : [fslicons.findImageFile(coronalHighlightIcon),
+                     fslicons.findImageFile(coronalIcon)],
+                2 : [fslicons.findImageFile('axialSliceHighlight24'),
+                     fslicons.findImageFile('axialSlice24')],
+            }
+        }
+
+        tooltips = {
+
+            'screenshot'   : fsltooltips.actions[   lb,      'screenshot'],
+            'movieMode'    : fsltooltips.properties[lb,      'movieMode'],
+            'zax'          : fsltooltips.properties[lbOpts,  'zax'],
+            'sliceSpacing' : fsltooltips.properties[lbOpts,  'sliceSpacing'],
+            'zrange'       : fsltooltips.properties[lbOpts,  'zrange'],
+            'zoom'         : fsltooltips.properties[lbOpts,  'zoom'],
+            'toggleCanvasSettingsPanel' : fsltooltips.actions[
+                lb, 'toggleCanvasSettingsPanel'],
+        }
+
+        specs = {
+
+            'toggleCanvasSettingsPanel' : actions.ToggleActionButton(
+                'toggleCanvasSettingsPanel',
+                actionKwargs={'floatPane' : True},
+                icon=icons['toggleCanvasSettingsPanel'],
+                tooltip=tooltips['toggleCanvasSettingsPanel']),
+
+            'screenshot' : actions.ActionButton(
+                'screenshot',
+                icon=icons['screenshot'],
+                tooltip=tooltips['screenshot']),
+
+            'movieMode'    : props.Widget(
+                'movieMode',
+                icon=icons['movieMode'],
+                tooltip=tooltips['movieMode']),
+
+            'zax'          : props.Widget(
+                'zax',
+                icons=icons['zax'],
+                tooltip=tooltips['zax']),
+
+            'sliceSpacing' : props.Widget(
+                'sliceSpacing',
+                spin=False,
+                showLimits=False,
+                tooltip=tooltips['sliceSpacing']),
+
+            'zrange'       : props.Widget(
+                'zrange',
+                spin=False,
+                showLimits=False,
+                tooltip=tooltips['zrange'],
+                labels=[strings.choices[lbOpts, 'zrange', 'min'],
+                        strings.choices[lbOpts, 'zrange', 'max']]),
+
+            'zoom'         : props.Widget(
+                'zoom',
+                spin=False,
+                showLimits=False,
+                tooltip=tooltips['zoom']),
+        }
+
+        # Slice spacing and zoom go on a single panel
+        panel = wx.Panel(self)
+        sizer = wx.FlexGridSizer(2, 2, 0, 0)
+        panel.SetSizer(sizer)
+
+        more         = props.buildGUI(self,
+                                      lb,
+                                      specs['toggleCanvasSettingsPanel'])
+        screenshot   = props.buildGUI(self,  lb,         specs['screenshot'])
+        movieMode    = props.buildGUI(self,  lb,         specs['movieMode'])
+        zax          = props.buildGUI(self,  lbOpts,     specs['zax'])
+        zrange       = props.buildGUI(self,  lbOpts,     specs['zrange'])
+        zoom         = props.buildGUI(panel, lbOpts,     specs['zoom'])
+        spacing      = props.buildGUI(panel, lbOpts,     specs['sliceSpacing'])
+        zoomLabel    = wx.StaticText(panel)
+        spacingLabel = wx.StaticText(panel)
+
+        zoomLabel   .SetLabel(strings.properties[lbOpts, 'zoom'])
+        spacingLabel.SetLabel(strings.properties[lbOpts, 'sliceSpacing'])
+
+        sizer.Add(zoomLabel)
+        sizer.Add(zoom,    flag=wx.EXPAND)
+        sizer.Add(spacingLabel)
+        sizer.Add(spacing, flag=wx.EXPAND)
+
+        tools = [more,
+                 screenshot,
+                 fsltoolbar.ToolBarDivider(self,
+                                           height=24,
+                                           orient=wx.VERTICAL),
+                 zax,
+                 fsltoolbar.ToolBarDivider(self,
+                                           height=24,
+                                           orient=wx.VERTICAL),
+                 movieMode,
+                 zrange,
+                 panel]
+        nav   = [more, screenshot, zax, movieMode, zrange, zoom, spacing]
+
+        self.SetTools(tools)
+        self.setNavOrder(nav)
+
+
+    @staticmethod
+    def supportedViews():
+        """Overrides :meth:`.ControlMixin.supportedViews`. The
+        ``LightBoxToolBar`` is only intended to be added to
+        :class:`.LightBoxPanel` views.
+        """
+        from fsleyes.views.lightboxpanel import LightBoxPanel
+        return [LightBoxPanel]
