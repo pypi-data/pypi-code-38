@@ -1,0 +1,1 @@
+default_app_config = 'aparnik.contrib.filefields.apps.FileFieldsConfig'
