@@ -1,0 +1,1856 @@
+import collections
+from datetime import datetime
+
+import six
+from six import StringIO
+from six.moves.urllib.parse import urljoin
+
+import recurly
+from recurly import Account, AddOn, Address, Adjustment, BillingInfo, Coupon, Plan, Redemption, Subscription, \
+    SubscriptionAddOn, Transaction, MeasuredUnit, Usage, GiftCard, Delivery, ShippingAddress, AccountAcquisition, \
+    Purchase, Invoice, InvoiceCollection, CreditPayment, CustomField, ExportDate, ExportDateFile
+from recurly import Money, NotFoundError, ValidationError, BadRequestError, PageError
+from recurly import recurly_logging as logging
+from recurlytests import RecurlyTest
+
+recurly.SUBDOMAIN = 'api'
+
+
+class TestResources(RecurlyTest):
+
+    def test_authentication(self):
+        recurly.API_KEY = None
+
+        account_code = 'test%s' % self.test_id
+        try:
+            Account.get(account_code)
+        except recurly.UnauthorizedError as exc:
+            pass
+        else:
+            self.fail("Updating account with invalid email address did not raise a ValidationError")
+
+    def test_config_string_types(self):
+        recurly.API_KEY = six.u('\xe4 unicode string')
+
+        account_code = 'test%s' % self.test_id
+        try:
+            Account.get(account_code)
+        except recurly.ConfigurationError as exc:
+            pass
+        else:
+            self.fail("Updating account with invalid email address did not raise a ValidationError")
+
+    def test_cached_response_headers(self):
+        account_code = 'test%s' % self.test_id
+        with self.mock_request('account/exists-with-rate-limit-headers.xml'):
+            account = Account.get(account_code)
+
+        self.assertEqual(recurly.cached_rate_limits['limit'], 2000)
+        self.assertEqual(recurly.cached_rate_limits['remaining'], 1992)
+        self.assertEqual(recurly.cached_rate_limits['resets_at'], datetime(2017, 2, 2, 19, 46))
+        self.assertIsInstance(recurly.cached_rate_limits['cached_at'], datetime)
+
+    def test_credit_payment(self):
+        with self.mock_request('credit-payment/show.xml'):
+            payment = CreditPayment.get('43c29728b3482fa8727edb4cefa7c774')
+            self.assertIsInstance(payment, CreditPayment)
+            self.assertEquals(payment.uuid, '43c29728b3482fa8727edb4cefa7c774')
+            self.assertEquals(payment.amount_in_cents, 12)
+            self.assertEquals(payment.currency, 'USD')
+            self.assertEquals(payment.action, 'payment')
+
+    def test_purchase(self):
+        account_code = 'test%s' % self.test_id
+        purchase = Purchase(
+            currency = 'USD',
+            gateway_code = 'aBcD1234',
+            collection_method = 'manual',
+            account = Account(
+                account_code = account_code,
+                shipping_addresses = [
+                    ShippingAddress(
+                        first_name = 'Verena',
+                        last_name = 'Example',
+                        address1 = '123 Main St',
+                        city = 'New Orleans',
+                        state = 'LA',
+                        zip = '70114',
+                        country = 'US',
+                        nickname = 'Work'
+                    )
+                ],
+                billing_info = BillingInfo(
+                    first_name = 'Verena',
+                    last_name = 'Example',
+                    number = '4111-1111-1111-1111',
+                    verification_value = '123',
+                    month = 11,
+                    year = 2020,
+                    address1 = '123 Main St',
+                    city = 'New Orleans',
+                    state = 'LA',
+                    zip = '70114',
+                    country = 'US',
+                )
+            ),
+            subscriptions = [
+                recurly.Subscription(plan_code = 'gold')
+            ],
+            adjustments = [
+                recurly.Adjustment(unit_amount_in_cents=1000, description='Item 1',
+                                   quantity=1),
+                recurly.Adjustment(unit_amount_in_cents=2000, description='Item 2',
+                                   quantity=2),
+            ]
+        )
+        with self.mock_request('purchase/invoiced.xml'):
+            collection = purchase.invoice()
+            self.assertIsInstance(collection, InvoiceCollection)
+            self.assertIsInstance(collection.charge_invoice, Invoice)
+            self.assertIsInstance(collection.credit_invoices, list)
+            self.assertIsInstance(collection.credit_invoices[0], Invoice)
+            self.assertIsInstance(collection.charge_invoice.line_items[0].shipping_address,
+                                  ShippingAddress)
+        with self.mock_request('purchase/previewed.xml'):
+            collection = purchase.preview()
+            self.assertIsInstance(collection, InvoiceCollection)
+            self.assertIsInstance(collection.charge_invoice, Invoice)
+        with self.mock_request('purchase/authorized.xml'):
+            purchase.account.email = 'benjamin.dumonde@example.com'
+            purchase.account.billing_info.external_hpp_type = 'adyen'
+            collection = purchase.authorize()
+            self.assertIsInstance(collection, InvoiceCollection)
+            self.assertIsInstance(collection.charge_invoice, Invoice)
+        with self.mock_request('purchase/pending.xml'):
+            purchase.account.email = 'benjamin.dumonde@example.com'
+            purchase.account.billing_info.external_hpp_type = 'adyen'
+            collection = purchase.pending()
+            self.assertIsInstance(collection, InvoiceCollection)
+            self.assertIsInstance(collection.charge_invoice, Invoice)
+
+    def test_account(self):
+        account_code = 'test%s' % self.test_id
+        with self.mock_request('account/does-not-exist.xml'):
+            self.assertRaises(NotFoundError, Account.get, account_code)
+
+        account = Account(account_code=account_code)
+        account.vat_number = '444444-UK'
+        account.preferred_locale = 'en-US'
+        with self.mock_request('account/created.xml'):
+            account.save()
+        self.assertEqual(account._url, urljoin(recurly.base_uri(), 'accounts/%s' % account_code))
+        self.assertEqual(account.vat_number, '444444-UK')
+        self.assertEqual(account.vat_location_enabled, True)
+        self.assertEqual(account.cc_emails,
+                'test1@example.com,test2@example.com')
+        self.assertEqual(account.preferred_locale, 'en-US')
+
+        with self.mock_request('account/list-active.xml'):
+            active = Account.all_active()
+        self.assertTrue(len(active) >= 1)
+        self.assertEqual(active[0].account_code, account_code)
+
+        with self.mock_request('account/exists.xml'):
+            same_account = Account.get(account_code)
+        self.assertTrue(isinstance(same_account, Account))
+        self.assertTrue(same_account is not account)
+        self.assertEqual(same_account.account_code, account_code)
+        self.assertTrue(same_account.first_name is None)
+        self.assertTrue(same_account.entity_use_code == 'I')
+        self.assertEqual(same_account._url, urljoin(recurly.base_uri(), 'accounts/%s' % account_code))
+
+        with self.mock_request('account-balance/exists.xml'):
+            account_balance = same_account.account_balance()
+
+        self.assertTrue(account_balance.past_due)
+        balance = account_balance.balance_in_cents
+        self.assertTrue(balance['USD'] == 2910)
+        self.assertTrue(balance['EUR'] == -520)
+
+        account.username = 'shmohawk58'
+        account.email = 'larry.david'
+        account.first_name = six.u('L\xe4rry')
+        account.last_name = 'David'
+        account.company_name = 'Home Box Office'
+        account.accept_language = 'en-US'
+        with self.mock_request('account/update-bad-email.xml'):
+            try:
+                account.save()
+            except ValidationError as exc:
+                self.assertTrue(isinstance(exc.errors, collections.Mapping))
+                self.assertTrue('account.email' in exc.errors)
+                suberror = exc.errors['account.email']
+                self.assertEqual(suberror.symbol, 'invalid_email')
+                self.assertTrue(suberror.message)
+                self.assertEqual(suberror.message, suberror.message)
+            else:
+                self.fail("Updating account with invalid email address did not raise a ValidationError")
+
+        account.email = 'larry.david@example.com'
+        with self.mock_request('account/updated.xml'):
+            account.save()
+
+        with self.mock_request('account/deleted.xml'):
+            account.delete()
+
+        with self.mock_request('account/list-closed.xml'):
+            closed = Account.all_closed()
+        self.assertTrue(len(closed) >= 1)
+        self.assertEqual(closed[0].account_code, account_code)
+
+        with self.mock_request('account/list-active-when-closed.xml'):
+            active = Account.all_active()
+        self.assertTrue(len(active) < 1 or active[0].account_code != account_code)
+
+        # Make sure we can reopen a closed account.
+        with self.mock_request('account/reopened.xml'):
+            account.reopen()
+        try:
+            with self.mock_request('account/list-active.xml'):
+                active = Account.all_active()
+            self.assertTrue(len(active) >= 1)
+            self.assertEqual(active[0].account_code, account_code)
+        finally:
+            with self.mock_request('account/deleted.xml'):
+                account.delete()
+
+        # Make sure numeric account codes work.
+        if self.test_id == 'mock':
+            numeric_test_id = 58
+        else:
+            numeric_test_id = int(self.test_id)
+
+        account = Account(account_code=numeric_test_id)
+        with self.mock_request('account/numeric-created.xml'):
+            account.save()
+        try:
+            self.assertEqual(account._url, urljoin(recurly.base_uri(), 'accounts/%d' % numeric_test_id))
+        finally:
+            with self.mock_request('account/numeric-deleted.xml'):
+                account.delete()
+
+        """Get taxed account"""
+        with self.mock_request('account/show-taxed.xml'):
+            account = Account.get(account_code)
+            self.assertTrue(account.tax_exempt)
+            self.assertEqual(account.exemption_certificate, 'Some Certificate')
+
+    def test_account_addresses(self):
+        account_code = 'test%s' % self.test_id
+        """Create an account with an account level address"""
+        account = Account(account_code=account_code)
+        account.address.address1 = '123 Main St'
+        account.address.city = 'San Francisco'
+        account.address.zip = '94105'
+        account.address.state = 'CA'
+        account.address.country = 'US'
+        account.address.phone = '8015559876'
+
+        with self.mock_request('account/created-with-address.xml'):
+            account.save()
+        self.assertEqual(account.address.address1, '123 Main St')
+        self.assertEqual(account.address.city, 'San Francisco')
+        self.assertEqual(account.address.zip, '94105')
+        self.assertEqual(account.address.state, 'CA')
+        self.assertEqual(account.address.country, 'US')
+        self.assertEqual(account.address.phone, '8015559876')
+
+        """Create an account with an account shipping address"""
+        account = Account(account_code=account_code)
+        shipping_address = ShippingAddress()
+        shipping_address.address1 = '123 Main St'
+        shipping_address.city = 'San Francisco'
+        shipping_address.zip = '94105'
+        shipping_address.state = 'CA'
+        shipping_address.country = 'US'
+        shipping_address.phone = '8015559876'
+        shipping_address.nickname = 'Work'
+
+        account.shipping_addresses = [shipping_address]
+
+        with self.mock_request('account/created-with-shipping-address.xml'):
+            account.save()
+
+        shipping_address = ShippingAddress()
+        shipping_address.address1 = '123 Dolores St'
+        shipping_address.city = 'San Francisco'
+        shipping_address.zip = '94105'
+        shipping_address.state = 'CA'
+        shipping_address.country = 'US'
+        shipping_address.phone = '8015559876'
+        shipping_address.nickname = 'Home'
+
+        with self.mock_request('shipping_addresses/created-on-existing-account.xml'):
+            shipping_address = account.create_shipping_address(shipping_address)
+
+    def test_account_custom_fields(self):
+        account_code = 'test%s' % self.test_id
+        """Create an account with a custom field"""
+        account = Account(
+            account_code=account_code,
+            custom_fields=[
+                CustomField(name="field_1", value="my field value")
+            ]
+        )
+        with self.mock_request('account/created-with-custom-fields.xml'):
+            account.save()
+
+        self.assertEquals(account.custom_fields[0].name, 'field_1')
+        self.assertEquals(account.custom_fields[0].value, 'my field value')
+
+        """Update custom fields on an account"""
+        with self.mock_request('account/exists-custom-fields.xml'):
+            existing_account = Account.get(account_code)
+        fields = existing_account.custom_fields
+        fields[1].value = "new value2"
+        existing_account.custom_fields = fields
+        with self.mock_request('account/updated-custom-fields.xml'):
+            existing_account.save()
+
+        self.assertEquals(existing_account.custom_fields[0].name, 'field1')
+        self.assertEquals(existing_account.custom_fields[0].value, 'original value1')
+        self.assertEquals(existing_account.custom_fields[1].name, 'field2')
+        self.assertEquals(existing_account.custom_fields[1].value, 'new value2')
+
+    def test_account_hierarchy(self):
+        account_code = 'test%s' % self.test_id
+        """Create an account with a parent"""
+        account = Account(
+            account_code=account_code,
+            parent_account_code="parent-account"
+        )
+        with self.mock_request('account/created-with-parent.xml'):
+            account.save()
+
+        """Get Parent account"""
+        with self.mock_request('account/exists-with-child-accounts.xml'):
+            parent = account.parent_account()
+
+        self.assertEquals(parent.account_code, 'parent-account')
+
+        """Get Child accounts"""
+        with self.mock_request('account/child-accounts.xml'):
+            for acct in parent.child_accounts():
+                self.assertEquals(acct.account_code, 'test%s' % self.test_id)
+
+    def test_account_acquisition(self):
+        account_code = 'test%s' % self.test_id
+
+        """Create an account with an account acquisition"""
+        account = Account(account_code=account_code)
+        acquisition = AccountAcquisition()
+        acquisition.cost_in_cents = 199
+        acquisition.currency = 'USD'
+        acquisition.channel = 'blog'
+        acquisition.subchannel = 'Whitepaper Blog Post'
+        acquisition.campaign = 'mailchimp67a904de95.0914d8f4b4'
+        account.account_acquisition = acquisition
+
+        with self.mock_request('account/created-with-account-acquisition.xml'):
+            account.save()
+
+        """Get the acquisition from the account"""
+        with self.mock_request('account-acquisition/exists.xml'):
+            acquisition = account.account_acquisition()
+
+        self.assertEquals(acquisition.cost_in_cents, 199)
+        self.assertEquals(acquisition.currency, 'USD')
+        self.assertEquals(acquisition.channel, 'blog')
+        self.assertEquals(acquisition.subchannel, 'Whitepaper Blog Post')
+        self.assertEquals(acquisition.campaign, 'mailchimp67a904de95.0914d8f4b4')
+
+        """Update the acquisition"""
+        acquisition.cost_in_cents = 200
+        acquisition.currency = 'EUR'
+        acquisition.channel = 'social_media'
+        acquisition.subchannel = 'Facebook Post'
+        acquisition.campaign = 'hubspot123456'
+
+        with self.mock_request('account-acquisition/updated.xml'):
+            acquisition.save()
+
+        self.assertEquals(acquisition.cost_in_cents, 200)
+        self.assertEquals(acquisition.currency, 'EUR')
+        self.assertEquals(acquisition.channel, 'social_media')
+        self.assertEquals(acquisition.subchannel, 'Facebook Post')
+        self.assertEquals(acquisition.campaign, 'hubspot123456')
+
+        with self.mock_request('account-acquisition/deleted.xml'):
+            acquisition.delete()
+
+    def test_add_on(self):
+        plan_code = 'plan%s' % self.test_id
+        add_on_code = 'addon%s' % self.test_id
+
+        plan = Plan(
+            plan_code=plan_code,
+            name='Mock Plan',
+            setup_fee_in_cents=Money(0),
+            unit_amount_in_cents=Money(1000),
+        )
+        with self.mock_request('add-on/plan-created.xml'):
+            plan.save()
+
+        try:
+            # a usage based add on
+            add_on = AddOn(
+                add_on_code=add_on_code,
+                name='Mock Add-On',
+                add_on_type="usage",
+                usage_type="price",
+                measured_unit_id=123456,
+            )
+            exc = None
+            with self.mock_request('add-on/need-amount.xml'):
+                try:
+                    plan.create_add_on(add_on)
+                except ValidationError as _exc:
+                    exc = _exc
+                else:
+                    self.fail("Creating a plan add-on without an amount did not raise a ValidationError")
+            error = exc.errors['add_on.unit_amount_in_cents']
+            self.assertEqual(error.symbol, 'blank')
+
+            add_on.unit_amount_in_cents = Money(40)
+
+            with self.mock_request('add-on/created.xml'):
+                plan.create_add_on(add_on)
+            self.assertEqual(add_on.add_on_code, add_on_code)
+            self.assertEqual(add_on.name, 'Mock Add-On')
+
+            try:
+
+                with self.mock_request('add-on/exists.xml'):
+                    same_add_on = plan.get_add_on(add_on_code)
+                self.assertEqual(same_add_on.add_on_code, add_on_code)
+                self.assertEqual(same_add_on.name, 'Mock Add-On')
+                self.assertEqual(same_add_on.unit_amount_in_cents['USD'], 40)
+
+            finally:
+                with self.mock_request('add-on/deleted.xml'):
+                    add_on.delete()
+        finally:
+            with self.mock_request('add-on/plan-deleted.xml'):
+                plan.delete()
+
+    def test_billing_info(self):
+        logging.basicConfig(level=logging.DEBUG)  # make sure it's init'ed
+        logger = logging.getLogger('recurly.http.request')
+        logger.setLevel(logging.DEBUG)
+
+        log_content = StringIO()
+        log_handler = logging.StreamHandler(log_content)
+        logger.addHandler(log_handler)
+
+        account = Account(account_code='binfo%s' % self.test_id)
+        with self.mock_request('billing-info/account-created.xml'):
+            account.save()
+
+        logger.removeHandler(log_handler)
+        self.assertTrue('<account' in log_content.getvalue())
+
+        try:
+
+            # Billing info link won't be present at all yet.
+            self.assertRaises(AttributeError, getattr, account, 'billing_info')
+
+            log_content = StringIO()
+            log_handler = logging.StreamHandler(log_content)
+            logger.addHandler(log_handler)
+
+            binfo = BillingInfo(
+                first_name='Verena',
+                last_name='Example',
+                address1='123 Main St',
+                city=six.u('San Jos\xe9'),
+                state='CA',
+                zip='94105',
+                country='US',
+                type='credit_card',
+                number='4111 1111 1111 1111',
+                verification_value='7777',
+                year='2015',
+                month='12',
+                gateway_token='gatewaytoken123',
+                gateway_code='gatewaycode123',
+            )
+            with self.mock_request('billing-info/created.xml'):
+                account.update_billing_info(binfo)
+
+            self.assertEqual(binfo.gateway_token, 'gatewaytoken123')
+            self.assertEqual(binfo.gateway_code, 'gatewaycode123')
+
+            logger.removeHandler(log_handler)
+            log_content = log_content.getvalue()
+            self.assertTrue('<billing_info' in log_content)
+            # See if we redacted our sensitive fields properly.
+            self.assertTrue('4111' not in log_content)
+            self.assertTrue('7777' not in log_content)
+
+            with self.mock_request('billing-info/account-exists.xml'):
+                same_account = Account.get('binfo%s' % self.test_id)
+            with self.mock_request('billing-info/exists.xml'):
+                same_binfo = same_account.billing_info
+            self.assertEqual(same_binfo.first_name, 'Verena')
+            self.assertEqual(same_binfo.city, six.u('San Jos\xe9'))
+
+            with self.mock_request('billing-info/deleted.xml'):
+                binfo.delete()
+        finally:
+            with self.mock_request('billing-info/account-deleted.xml'):
+                account.delete()
+
+        # Credit Card
+        log_content = StringIO()
+        log_handler = logging.StreamHandler(log_content)
+        logger.addHandler(log_handler)
+
+        account = Account(account_code='binfo-%s-2' % self.test_id)
+        account.billing_info = BillingInfo(
+            first_name='Verena',
+            last_name='Example',
+            address1='123 Main St',
+            city=six.u('San Jos\xe9'),
+            state='CA',
+            zip='94105',
+            country='US',
+            type='credit_card',
+            number='4111 1111 1111 1111',
+            verification_value='7777',
+            year='2015',
+            month='12',
+        )
+        with self.mock_request('billing-info/account-embed-created.xml'):
+            account.save()
+
+        try:
+            logger.removeHandler(log_handler)
+            log_content = log_content.getvalue()
+            self.assertTrue('<account' in log_content)
+            self.assertTrue('<billing_info' in log_content)
+            self.assertTrue('4111' not in log_content)
+            self.assertTrue('7777' not in log_content)
+
+            with self.mock_request('billing-info/account-embed-exists.xml'):
+                same_account = Account.get('binfo-%s-2' % self.test_id)
+            with self.mock_request('billing-info/embedded-exists.xml'):
+                binfo = same_account.billing_info
+            self.assertEqual(binfo.first_name, 'Verena')
+        finally:
+            with self.mock_request('billing-info/account-embed-deleted.xml'):
+                account.delete()
+
+        # Token
+        log_content = StringIO()
+        log_handler = logging.StreamHandler(log_content)
+        logger.addHandler(log_handler)
+
+        account = Account(account_code='binfo-%s-3' % self.test_id)
+        account.billing_info = BillingInfo(token_id = 'abc123')
+        with self.mock_request('billing-info/account-embed-token.xml'):
+            account.save()
+
+        logger.removeHandler(log_handler)
+        log_content = log_content.getvalue()
+        self.assertTrue('<billing_info' in log_content)
+        self.assertTrue('<token_id' in log_content)
+
+    def test_charge(self):
+        account = Account(account_code='charge%s' % self.test_id)
+        with self.mock_request('adjustment/account-created.xml'):
+            account.save()
+
+        try:
+            with self.mock_request('adjustment/account-has-no-charges.xml'):
+                charges = account.adjustments()
+            self.assertEqual(charges, [])
+
+            charge = Adjustment(unit_amount_in_cents=1000, currency='USD', description='test charge', type='charge')
+            with self.mock_request('adjustment/charged.xml'):
+                account.charge(charge)
+
+            with self.mock_request('adjustment/account-has-adjustments.xml'):
+                charges = account.adjustments()
+            self.assertEqual(len(charges), 1)
+            same_charge = charges[0]
+            self.assertEqual(same_charge.unit_amount_in_cents, 1000)
+            self.assertEqual(same_charge.tax_in_cents, 5000)
+            self.assertEqual(same_charge.tax_type, 'usst')
+            self.assertEqual(same_charge.tax_rate, 0.0875)
+            self.assertEqual(same_charge.tax_region, 'CA')
+            self.assertEqual(same_charge.currency, 'USD')
+            self.assertEqual(same_charge.description, 'test charge')
+            self.assertEqual(same_charge.type, 'charge')
+
+            tax_details = same_charge.tax_details
+            state, county = tax_details
+
+            self.assertEqual(len(tax_details), 2)
+            self.assertEqual(state.name, 'california')
+            self.assertEqual(state.type, 'state')
+            self.assertEqual(state.tax_rate, 0.065)
+            self.assertEqual(state.tax_in_cents, 3000)
+
+            self.assertEqual(county.name, 'san francisco')
+            self.assertEqual(county.type, 'county')
+            self.assertEqual(county.tax_rate, 0.02)
+            self.assertEqual(county.tax_in_cents, 2000)
+
+            with self.mock_request('adjustment/account-has-charges.xml'):
+                charges = account.adjustments(type='charge')
+            self.assertEqual(len(charges), 1)
+
+            with self.mock_request('adjustment/account-has-no-credits.xml'):
+                credits = account.adjustments(type='credit')
+            self.assertEqual(len(credits), 0)
+
+        finally:
+            with self.mock_request('adjustment/account-deleted.xml'):
+                account.delete()
+
+        """Test taxed adjustments"""
+        with self.mock_request('adjustment/show-taxed.xml'):
+            charge = account.adjustments()[0]
+            self.assertFalse(charge.tax_exempt)
+
+        """Test original adjustment"""
+        with self.mock_request('adjustment/original-adjustment.xml'):
+            charge = Adjustment.get('2c06b94abe047189b225d94dd0adb71f')
+
+            with self.mock_request('adjustment/original-adjustment-lookup.xml'):
+                original_charge = charge.original_adjustment()
+
+            self.assertEqual(original_charge.total_in_cents, -charge.total_in_cents)
+
+        """Test original adjustment lookup by UUID"""
+        with self.mock_request('adjustment/original-adjustment-uuid.xml'):
+            charge = Adjustment.get('2c06b94abe047189b225d94dd0adb71f')
+
+            with self.mock_request('adjustment/original-adjustment-lookup.xml'):
+                original_charge = charge.original_adjustment()
+
+            self.assertEqual(original_charge.total_in_cents, -charge.total_in_cents)
+
+    def test_coupon(self):
+        # Check that a coupon may not exist.
+        coupon_code = 'coupon%s' % self.test_id
+        with self.mock_request('coupon/does-not-exist.xml'):
+            self.assertRaises(NotFoundError, Coupon.get, coupon_code)
+
+        # Create a coupon?
+        coupon = Coupon(
+            coupon_code=coupon_code,
+            name='Nice Coupon',
+            discount_in_cents=Money(1000),
+            hosted_description='Nice Description',
+            invoice_description='Invoice description'
+        )
+        with self.mock_request('coupon/created.xml'):
+            coupon.save()
+        self.assertTrue(coupon._url)
+
+        try:
+
+            with self.mock_request('coupon/exists.xml'):
+                same_coupon = Coupon.get(coupon_code)
+            self.assertEqual(same_coupon.coupon_code, coupon_code)
+            self.assertEqual(same_coupon.name, 'Nice Coupon')
+            self.assertEqual(same_coupon.invoice_description, 'Invoice description')
+            discount = same_coupon.discount_in_cents
+            self.assertEqual(discount['USD'], 1000)
+            self.assertTrue('USD' in discount)
+            self.assertIsNotNone(same_coupon.hosted_description)
+
+            account_code = 'coupon%s' % self.test_id
+            account = Account(account_code=account_code)
+            with self.mock_request('coupon/account-created.xml'):
+                account.save()
+
+            coupon.name = 'New Name'
+            coupon.invoice_description = 'New Description'
+            coupon.hosted_description = 'New Description'
+
+            with self.mock_request('coupon/updated.xml'):
+                coupon.save()
+
+            self.assertEqual(coupon.name, 'New Name')
+            self.assertEqual(coupon.invoice_description, 'New Description')
+            self.assertEqual(coupon.hosted_description, 'New Description')
+
+            coupon.name = 'New Name Restore'
+            coupon.invoice_description = 'New Description Restore'
+            coupon.hosted_description = 'New Description Restore'
+
+            with self.mock_request('coupon/restored.xml'):
+                coupon.restore()
+
+            self.assertEqual(coupon.name, 'New Name Restore')
+            self.assertEqual(coupon.invoice_description, 'New Description Restore')
+            self.assertEqual(coupon.hosted_description, 'New Description Restore')
+
+            try:
+
+                redemption = Redemption(
+                    account_code=account_code,
+                    currency='USD',
+                )
+                with self.mock_request('coupon/redeemed.xml'):
+                    real_redemption = coupon.redeem(redemption)
+                self.assertTrue(isinstance(real_redemption, Redemption))
+                self.assertEqual(real_redemption.currency, 'USD')
+
+                with self.mock_request('coupon/account-with-redemption.xml'):
+                    account = Account.get(account_code)
+                with self.mock_request('coupon/redemption-exists.xml'):
+                    same_redemption = account.redemption()
+                self.assertEqual(same_redemption._url, real_redemption._url)
+
+                with self.mock_request('coupon/unredeemed.xml'):
+                    real_redemption.delete()
+
+            finally:
+                with self.mock_request('coupon/account-deleted.xml'):
+                    account.delete()
+
+            plan = Plan(
+                plan_code='basicplan',
+                name='Basic Plan',
+                setup_fee_in_cents=Money(0),
+                unit_amount_in_cents=Money(1000),
+            )
+            with self.mock_request('coupon/plan-created.xml'):
+                plan.save()
+
+            try:
+
+                account_code_2 = 'coupon-%s-2' % self.test_id
+                sub = Subscription(
+                    plan_code='basicplan',
+                    coupon_code='coupon%s' % self.test_id,
+                    currency='USD',
+                    account=Account(
+                        account_code=account_code_2,
+                        billing_info=BillingInfo(
+                            first_name='Verena',
+                            last_name='Example',
+                            number='4111 1111 1111 1111',
+                            address1='123 Main St',
+                            city='San Francisco',
+                            state='CA',
+                            zip='94105',
+                            country='US',
+                            verification_value='7777',
+                            year='2015',
+                            month='12',
+                        ),
+                    ),
+                )
+                with self.mock_request('coupon/subscribed.xml'):
+                    sub.save()
+
+                with self.mock_request('coupon/second-account-exists.xml'):
+                    account_2 = Account.get(account_code_2)
+
+                try:
+
+                    with self.mock_request('coupon/second-account-redemption.xml'):
+                        redemption_2 = account_2.redemption()
+                    self.assertTrue(isinstance(redemption_2, Redemption))
+                    self.assertEqual(redemption_2.currency, 'USD')
+                    with self.mock_request('coupon/exists.xml'):
+                        same_coupon = redemption_2.coupon()
+                    self.assertEqual(same_coupon.coupon_code, coupon_code)
+
+                finally:
+                    with self.mock_request('coupon/second-account-deleted.xml'):
+                        account_2.delete()
+
+                plan_coupon = Coupon(
+                    coupon_code='plancoupon%s' % self.test_id,
+                    name='Plan Coupon',
+                    discount_in_cents=Money(1000),
+                    invoice_description='Invoice description',
+                    applies_to_all_plans=False,
+                    plan_codes=('basicplan',),
+                    applies_to_non_plan_charges=True,
+                    redemption_resource='subscription',
+                    max_redemptions_per_account=1,
+                )
+                with self.mock_request('coupon/plan-coupon-created.xml'):
+                    plan_coupon.save()
+
+                try:
+                    self.assertTrue(plan_coupon._url)
+                    self.assertFalse(plan_coupon.has_unlimited_redemptions_per_account())
+
+                    coupon_plans = list(plan_coupon.plan_codes)
+                    self.assertEqual(len(coupon_plans), 1)
+                    self.assertEqual(coupon_plans[0], 'basicplan')
+                finally:
+                    with self.mock_request('coupon/plan-coupon-deleted.xml'):
+                        plan_coupon.delete()
+
+            finally:
+                with self.mock_request('coupon/plan-deleted.xml'):
+                    plan.delete()
+
+        finally:
+            with self.mock_request('coupon/deleted.xml'):
+                coupon.delete()
+
+    def test_invoice(self):
+        account = Account(account_code='invoice%s' % self.test_id)
+        with self.mock_request('invoice/account-created.xml'):
+            account.save()
+
+        try:
+            with self.mock_request('invoice/account-has-no-invoices.xml'):
+                invoices = account.invoices()
+            self.assertEqual(invoices, [])
+
+            with self.mock_request('invoice/error-no-charges.xml'):
+                try:
+                    account.invoice()
+                except ValidationError as exc:
+                    error = exc
+                else:
+                    self.fail("Invoicing an account with no charges did not raise a ValidationError")
+            self.assertEqual(error.symbol, 'will_not_invoice')
+
+            charge = Adjustment(unit_amount_in_cents=1000, currency='USD', description='test charge', type='charge')
+            with self.mock_request('invoice/charged.xml'):
+                account.charge(charge)
+
+            with self.mock_request('invoice/invoiced.xml'):
+                account.invoice()
+
+            with self.mock_request('invoice/account-has-invoices.xml'):
+                invoices = account.invoices()
+            self.assertEqual(len(invoices), 1)
+        finally:
+            with self.mock_request('invoice/account-deleted.xml'):
+                account.delete()
+
+        """Test taxed invoice"""
+        with self.mock_request('invoice/show-taxed.xml'):
+            invoice = account.invoices()[0]
+            self.assertEqual(invoice.tax_type, 'usst')
+
+        """Test invoice with prefix"""
+        with self.mock_request('invoice/show-with-prefix.xml'):
+            invoice = account.invoices()[0]
+            self.assertEqual(invoice.invoice_number, 1001)
+            self.assertEqual(invoice.invoice_number_prefix, 'GB')
+            self.assertEqual(invoice.invoice_number_with_prefix(), 'GB1001')
+
+    def test_invoice_refund_amount(self):
+        account = Account(account_code='invoice%s' % self.test_id)
+        with self.mock_request('invoice/account-created.xml'):
+            account.save()
+
+        with self.mock_request('invoice/invoiced.xml'):
+            invoice = account.invoice().charge_invoice
+
+        with self.mock_request('invoice/refunded.xml'):
+            options = {
+                'refund_method': 'credit_first',
+                'credit_customer_notes': 'Credit Customer Notes',
+                'description': 'Description'
+            }
+            refund_invoice = invoice.refund_amount(1000, options)
+        self.assertEqual(refund_invoice.subtotal_in_cents, -1000)
+
+    def test_invoice_refund(self):
+        account = Account(account_code='invoice%s' % self.test_id)
+        with self.mock_request('invoice/account-created.xml'):
+            account.save()
+
+        with self.mock_request('invoice/invoiced-line-items.xml'):
+            invoice = account.invoice().charge_invoice
+
+        with self.mock_request('invoice/line-item-refunded.xml'):
+            line_items = [{ 'adjustment': invoice.line_items[0], 'quantity': 1,
+                'prorate': False }]
+            options = {
+                'refund_method': 'credit_first',
+                'credit_customer_notes': 'Credit Customer Notes',
+                'description': 'Description'
+            }
+            refund_invoice = invoice.refund(line_items, options)
+        self.assertEqual(refund_invoice.subtotal_in_cents, -1000)
+
+    def test_invoice_with_optionals(self):
+        account = Account(account_code='invoice%s' % self.test_id)
+        with self.mock_request('invoice/account-created.xml'):
+            account.save()
+
+        with self.mock_request('invoice/invoiced-with-optionals.xml'):
+            collection = account.invoice(terms_and_conditions='Some Terms and Conditions',
+                    customer_notes='Some Customer Notes', collection_method="manual",
+                    net_terms=30)
+
+        invoice = collection.charge_invoice
+
+        self.assertIsInstance(collection, InvoiceCollection)
+        self.assertIsInstance(invoice, Invoice)
+        self.assertEqual(invoice.terms_and_conditions, 'Some Terms and Conditions')
+        self.assertEqual(invoice.customer_notes, 'Some Customer Notes')
+        self.assertEqual(invoice.collection_method, 'manual')
+        self.assertEqual(invoice.net_terms, 30)
+
+    def test_invoice_offline_payment(self):
+        with self.mock_request('invoice/show-invoice.xml'):
+            invoice = Invoice.get("6019")
+
+        self.assertIsInstance(invoice, Invoice)
+
+        with self.mock_request('invoice/offline-payment.xml'):
+            transaction = Transaction(amount_in_cents=5000, description="Collected externally")
+            transaction = invoice.enter_offline_payment(transaction)
+
+        self.assertIsInstance(transaction, Transaction)
+
+    def test_invoice_create(self):
+        # Invoices should not be created with save method
+        invoice = Invoice()
+        self.assertRaises(BadRequestError, invoice.save)
+
+    def test_invoice_update(self):
+        with self.mock_request('invoice/show-invoice.xml'):
+            invoice = Invoice.get("6019")
+
+        self.assertIsInstance(invoice, Invoice)
+
+        with self.mock_request('invoice/update-invoice.xml'):
+            invoice.address = recurly.Address(
+                first_name = 'Harry',
+                last_name = 'Potter',
+                company = 'Hogwarts',
+                name_on_account = 'Albus Dumbledore',
+                address1 = '4 Privet Drive',
+                address2 = 'Little Whinging',
+                city = 'Surrey',
+                state = 'England',
+                zip = 'YO8 9FX',
+                country = 'Great Britain',
+                phone = '781-452-4077'
+            )
+            invoice.po_number = '1234'
+            invoice.terms_and_conditions = 'School staff is not responsible for items left at Hogwarts School of Witchcraft and Wizardry.'
+            invoice.customer_notes = "It's levi-O-sa, not levio-SA!"
+            invoice.vat_reverse_charge_notes = "can't be changed when invoice was not a reverse charge"
+            invoice.net_terms = 1
+            invoice.gateway_code = 'A new gateway code'
+            invoice.save()
+
+        self.assertEqual(invoice.address.first_name, 'Harry')
+        self.assertEqual(invoice.address.last_name, 'Potter')
+        self.assertEqual(invoice.address.name_on_account, 'Albus Dumbledore')
+        self.assertEqual(invoice.address.company, 'Hogwarts')
+        self.assertEqual(invoice.address.address1, '4 Privet Drive')
+        self.assertEqual(invoice.address.address2, 'Little Whinging')
+        self.assertEqual(invoice.address.city, 'Surrey')
+        self.assertEqual(invoice.address.state, 'England')
+        self.assertEqual(invoice.address.zip, 'YO8 9FX')
+        self.assertEqual(invoice.address.country, 'Great Britain')
+        self.assertEqual(invoice.address.phone, '781-452-4077')
+        self.assertEqual(invoice.po_number, '1234')
+        self.assertEqual(invoice.terms_and_conditions, 'School staff is not responsible for items left at Hogwarts School of Witchcraft and Wizardry.')
+        self.assertEqual(invoice.customer_notes, "It's levi-O-sa, not levio-SA!")
+        self.assertEqual(invoice.vat_reverse_charge_notes, "can't be changed when invoice was not a reverse charge")
+        self.assertEqual(invoice.net_terms, 1)
+        self.assertEqual(invoice.gateway_code, 'A new gateway code')
+
+    def test_build_invoice(self):
+        account = Account(account_code='invoice%s' % self.test_id)
+        with self.mock_request('invoice/account-created.xml'):
+            account.save()
+
+        try:
+            with self.mock_request('invoice/preview-error-no-charges.xml'):
+                try:
+                    account.build_invoice()
+                except ValidationError as exc:
+                    error = exc
+                else:
+                    self.fail("Invoicing an account with no charges did not raise a ValidationError")
+            self.assertEqual(error.symbol, 'will_not_invoice')
+
+            charge = Adjustment(unit_amount_in_cents=1000, currency='USD', description='test charge', type='charge')
+            with self.mock_request('invoice/charged.xml'):
+                account.charge(charge)
+
+            with self.mock_request('invoice/preview-invoice.xml'):
+                account.build_invoice()
+        finally:
+            with self.mock_request('invoice/account-deleted.xml'):
+                account.delete()
+
+    def test_count(self):
+        try:
+            with self.mock_request('pages/count.xml'):
+                num_accounts = Account.count(begin_time='2017-05-01T10:30:01-06:00')
+
+            self.assertTrue(num_accounts, 23)
+        finally:
+            pass
+
+    def test_pages(self):
+        account_code = 'pages-%s-%%d' % self.test_id
+        all_test_accounts = list()
+
+        try:
+            for i in range(1, 8):
+                account = Account(account_code=account_code % i)
+                all_test_accounts.append(account)
+                with self.mock_request('pages/account-%d-created.xml' % i):
+                    account.save()
+                    self.mock_sleep(1)
+
+            with self.mock_request('pages/list.xml'):
+                accounts = Account.all(per_page=4)
+            self.assertTrue(isinstance(accounts[0], Account))
+            self.assertRaises(IndexError, lambda: accounts[4])
+
+            # Test errors, since the first page has no first page.
+            self.assertRaises(PageError, lambda: accounts.first_page())
+            # Make sure PageError is a ValueError.
+            self.assertRaises(ValueError, lambda: accounts.first_page())
+
+            with self.mock_request('pages/next-list.xml'):
+                next_accounts = accounts.next_page()
+            # We asked for all the accounts, which may include closed accounts
+            # from previous tests or data, not just the three we created.
+            self.assertTrue(isinstance(next_accounts[0], Account))
+            self.assertRaises(IndexError, lambda: next_accounts[4])
+
+            with self.mock_request('pages/list.xml'):  # should be just like the first
+                first_accounts = next_accounts.first_page()
+            self.assertTrue(isinstance(first_accounts[0], Account))
+
+        finally:
+            for i, account in enumerate(all_test_accounts, 1):
+                with self.mock_request('pages/account-%d-deleted.xml' % i):
+                    account.delete()
+
+    def test_plan(self):
+        plan_code = 'plan%s' % self.test_id
+        with self.mock_request('plan/does-not-exist.xml'):
+            self.assertRaises(NotFoundError, Plan.get, plan_code)
+
+        plan = Plan(
+            plan_code=plan_code,
+            name='Mock Plan',
+            setup_fee_in_cents=Money(0),
+            unit_amount_in_cents=Money(1000),
+            total_billing_cycles=10
+        )
+        with self.mock_request('plan/created.xml'):
+            plan.save()
+
+        try:
+            self.assertEqual(plan.plan_code, plan_code)
+
+            with self.mock_request('plan/exists.xml'):
+                same_plan = Plan.get(plan_code)
+            self.assertEqual(same_plan.plan_code, plan_code)
+            self.assertEqual(same_plan.name, 'Mock Plan')
+            self.assertEqual(same_plan.total_billing_cycles, 10)
+
+            plan.plan_interval_length = 2
+            plan.plan_interval_unit = 'months'
+            plan.unit_amount_in_cents = Money(USD=2000)
+            plan.setup_fee_in_cents = Money(USD=200)
+            plan.setup_fee_accounting_code = 'Setup Fee AC'
+            with self.mock_request('plan/updated.xml'):
+                plan.save()
+        finally:
+            with self.mock_request('plan/deleted.xml'):
+                plan.delete()
+
+        """Test taxed plan"""
+        with self.mock_request('plan/show-taxed.xml'):
+            plan = Plan.get(plan_code)
+            self.assertTrue(plan.tax_exempt)
+
+    def test_preview_subscription_change(self):
+        with self.mock_request('subscription/show.xml'):
+            sub = Subscription.get('123456789012345678901234567890ab')
+
+            with self.mock_request('subscription/change-preview.xml'):
+                sub.quantity = 2
+                sub.preview()
+                self.assertTrue(sub.invoice_collection.charge_invoice.line_items[0].amount_in_cents, 2000)
+
+    def test_subscribe_multiple_errors(self):
+        logging.basicConfig(level=logging.DEBUG)  # make sure it's init'ed
+        logger = logging.getLogger('recurly.http.request')
+        logger.setLevel(logging.DEBUG)
+
+        plan = Plan(
+            plan_code='basicplan',
+            name='Basic Plan',
+            setup_fee_in_cents=Money(0),
+            unit_amount_in_cents=Money(1000),
+        )
+        with self.mock_request('subscription/plan-created.xml'):
+            plan.save()
+
+        try:
+            account = Account()
+            with self.mock_request('subscription/error-subscribe-embedded-account.xml'):
+                account.save()
+            self.fail("Failed subscription did not raise a Validation error")
+        except recurly.ValidationError as err:
+            # Check to see that we have a list of suberrors when there is more
+            # than one error on a field
+            sub_errs = err.errors['subscription.account.account_code']
+            self.assertEqual(len(sub_errs), 2)
+            self.assertEqual(type(sub_errs[1]), recurly.errors.ValidationError.Suberror)
+            self.assertEqual(str(err), "blank: subscription.account.account_code can't be blank; invalid: subscription.account.account_code is invalid; empty: subscription.account.billing_info.address1 can't be empty; empty: subscription.account.billing_info.city can't be empty; empty: subscription.account.billing_info.country can't be empty; blank: subscription.account.billing_info.first_name can't be blank; blank: subscription.account.billing_info.last_name can't be blank; required: subscription.account.billing_info.number is required; empty: subscription.account.billing_info.zip can't be empty; invalid: subscription.plan_code is invalid; not_a_number: subscription.unit_amount_in_cents is not a number")
+        except e:
+            self.fail("Failed subscription did not raise a Validation error")
+
+    def test_subscribe(self):
+        logging.basicConfig(level=logging.DEBUG)  # make sure it's init'ed
+        logger = logging.getLogger('recurly.http.request')
+        logger.setLevel(logging.DEBUG)
+
+        plan = Plan(
+            plan_code='basicplan',
+            name='Basic Plan',
+            setup_fee_in_cents=Money(0),
+            unit_amount_in_cents=Money(1000),
+        )
+        with self.mock_request('subscription/plan-created.xml'):
+            plan.save()
+
+        try:
+            account = Account(account_code='subscribe%s' % self.test_id)
+            with self.mock_request('subscription/account-created.xml'):
+                account.save()
+
+            try:
+
+                sub = Subscription(
+                    plan_code='basicplan',
+                    currency='USD',
+                    unit_amount_in_cents=1000,
+                    bulk=True,
+                    terms_and_conditions='Some Terms and Conditions',
+                    customer_notes='Some Customer Notes',
+                    imported_trial=True
+                )
+
+                with self.mock_request('subscription/error-no-billing-info.xml'):
+                    try:
+                        account.subscribe(sub)
+                    except BadRequestError as exc:
+                        error = exc
+                    else:
+                        self.fail("Subscribing with no billing info did not raise a BadRequestError")
+                self.assertEqual(error.symbol, 'billing_info_required')
+
+                binfo = BillingInfo(
+                    first_name='Verena',
+                    last_name='Example',
+                    address1='123 Main St',
+                    city=six.u('San Jos\xe9'),
+                    state='CA',
+                    zip='94105',
+                    country='US',
+                    type='credit_card',
+                    number='4111 1111 1111 1111',
+                    verification_value='7777',
+                    year='2015',
+                    month='12',
+                )
+                with self.mock_request('subscription/update-billing-info.xml'):
+                    account.update_billing_info(binfo)
+
+                with self.mock_request('subscription/subscribed.xml'):
+                    account.subscribe(sub)
+
+                self.assertTrue(sub._url)
+                self.assertEquals(sub.imported_trial, True)
+
+                manualsub = Subscription(
+                    plan_code='basicplan',
+                    currency='USD',
+                    net_terms=10,
+                    po_number='1000',
+                    collection_method='manual'
+                )
+                with self.mock_request('subscription/subscribed-manual.xml'):
+                    account.subscribe(manualsub)
+                self.assertTrue(manualsub._url)
+                self.assertEqual(manualsub.net_terms, 10)
+                self.assertEqual(manualsub.collection_method, 'manual')
+                self.assertEqual(manualsub.po_number, '1000')
+
+                shipping_address = ShippingAddress()
+                shipping_address.address1 = '123 Main St'
+                shipping_address.city = 'San Francisco'
+                shipping_address.zip = '94105'
+                shipping_address.state = 'CA'
+                shipping_address.country = 'US'
+                shipping_address.phone = '8015559876'
+                shipping_address.nickname = 'Work'
+
+                sub_with_shipping = Subscription(
+                    plan_code='basicplan',
+                    currency='USD',
+                    shipping_address=shipping_address
+                )
+                with self.mock_request('subscription/subscribed-shipping-address.xml'):
+                    account.subscribe(sub_with_shipping)
+
+                with self.mock_request('subscription/account-subscriptions.xml'):
+                    subs = account.subscriptions()
+                self.assertTrue(len(subs) > 0)
+                self.assertEqual(subs[0].uuid, sub.uuid)
+
+                with self.mock_request('subscription/all-subscriptions.xml'):
+                    subs = Subscription.all()
+                self.assertTrue(len(subs) > 0)
+                self.assertEqual(subs[0].uuid, sub.uuid)
+
+                with self.mock_request('subscription/cancelled.xml'):
+                    sub.cancel()
+                with self.mock_request('subscription/reactivated.xml'):
+                    sub.reactivate()
+
+                # Try modifying the subscription.
+                sub.timeframe = 'renewal'
+                sub.unit_amount_in_cents = 800
+                with self.mock_request('subscription/updated-at-renewal.xml'):
+                    sub.save()
+                pending_sub = sub.pending_subscription
+                self.assertTrue(isinstance(pending_sub, Subscription))
+                self.assertEqual(pending_sub.unit_amount_in_cents, 800)
+                self.assertEqual(sub.unit_amount_in_cents, 1000)
+
+                with self.mock_request('subscription/terminated.xml'):
+                    sub.terminate(refund='none')
+
+                log_content = StringIO()
+                log_handler = logging.StreamHandler(log_content)
+                logger.addHandler(log_handler)
+
+                sub = Subscription(
+                    plan_code='basicplan',
+                    currency='USD',
+                    account=Account(
+                        account_code='subscribe%s' % self.test_id,
+                        billing_info=BillingInfo(
+                            first_name='Verena',
+                            last_name='Example',
+                            address1='123 Main St',
+                            city=six.u('San Jos\xe9'),
+                            state='CA',
+                            zip='94105',
+                            country='US',
+                            type='credit_card',
+                            number='4111 1111 1111 1111',
+                            verification_value='7777',
+                            year='2015',
+                            month='12',
+                        ),
+                    ),
+                )
+                with self.mock_request('subscription/subscribed-billing-info.xml'):
+                    account.subscribe(sub)
+
+                logger.removeHandler(log_handler)
+                log_content = log_content.getvalue()
+                self.assertTrue('<subscription' in log_content)
+                self.assertTrue('<billing_info' in log_content)
+                # See if we redacted our sensitive fields properly.
+                self.assertTrue('4111' not in log_content)
+                self.assertTrue('7777' not in log_content)
+
+            finally:
+                with self.mock_request('subscription/account-deleted.xml'):
+                    account.delete()
+
+            account_code_2 = 'subscribe-%s-2' % self.test_id
+            sub = Subscription(
+                plan_code='basicplan',
+                currency='USD',
+                account=Account(
+                    account_code=account_code_2,
+                    billing_info=BillingInfo(
+                        first_name='Verena',
+                        last_name='Example',
+                        address1='123 Main St',
+                        city=six.u('San Jos\xe9'),
+                        state='CA',
+                        zip='94105',
+                        country='US',
+                        type='credit_card',
+                        number='4111 1111 1111 1111',
+                        verification_value='7777',
+                        year='2015',
+                        month='12',
+                    ),
+                ),
+            )
+            with self.mock_request('subscription/subscribe-embedded-account.xml'):
+                sub.save()
+
+            with self.mock_request('subscription/embedded-account-exists.xml'):
+                acc = Account.get(account_code_2)
+            self.assertEqual(acc.account_code, account_code_2)
+
+            with self.mock_request('subscription/embedded-account-deleted.xml'):
+                acc.delete()
+
+        finally:
+            with self.mock_request('subscription/plan-deleted.xml'):
+                plan.delete()
+
+        with self.mock_request('subscription/show.xml'):
+            sub = Subscription.get('123456789012345678901234567890ab')
+            self.assertEqual(sub.tax_in_cents, 0)
+            self.assertEqual(sub.tax_type, 'usst')
+
+            with self.mock_request('subscription/redemptions.xml'):
+                self.assertEqual(type(sub.redemptions()), recurly.resource.Page)
+
+    def test_measured_unit(self):
+        with self.mock_request('measured-units/exists.xml'):
+            measured_unit = MeasuredUnit.get(123456)
+            self.assertEqual(measured_unit.name, 'marketing_email')
+            self.assertEqual(measured_unit.display_name, 'Marketing Email')
+            self.assertEqual(measured_unit.description, 'Unit of Marketing Email')
+            self.assertEqual(measured_unit.id, 123456)
+
+    def test_subscription_pause_resume(self):
+        with self.mock_request('subscription/show.xml'):
+            sub = Subscription.get('123456789012345678901234567890ab')
+
+        with self.mock_request('subscription/pause.xml'):
+            sub.pause(1)
+
+        self.assertIsInstance(sub.paused_at, datetime)
+        self.assertEqual(sub.remaining_pause_cycles, 1)
+
+        with self.mock_request('subscription/resume.xml'):
+            sub.resume()
+
+    def test_usage(self):
+        usage = Usage()
+        usage.amount = 100 # record 100 emails
+        usage.merchant_tag = "Recording 100 emails used by customer"
+        usage.recording_timestamp = datetime(2016, 12, 12, 12, 0, 0, 0)
+        usage.usage_timestamp = datetime(2016, 12, 12, 12, 0, 0, 0)
+
+        with self.mock_request('subscription/show.xml'):
+            sub = Subscription.get('123456789012345678901234567890ab')
+
+            # find the add on with the marketing_emails code
+            def marketing_emails_add_on(sub):
+                for add_on in sub.subscription_add_ons:
+                    if add_on.add_on_code == 'marketing_emails':
+                        return add_on
+                return None
+
+            add_on = marketing_emails_add_on(sub)
+
+            with self.mock_request('usage/created.xml'):
+                sub.create_usage(add_on, usage)
+
+            with self.mock_request('usage/index.xml'):
+                usages = add_on.usage()
+
+                self.assertEquals(type(usages), recurly.resource.Page)
+                self.assertEquals(len(usages), 1)
+
+                for usage in usages:
+                    self.assertEquals(type(usage), Usage)
+
+    def test_subscribe_add_on(self):
+        plan = Plan(
+            plan_code='basicplan',
+            name='Basic Plan',
+            setup_fee_in_cents=Money(0),
+            unit_amount_in_cents=Money(1000),
+        )
+        with self.mock_request('subscribe-add-on/plan-created.xml'):
+            plan.save()
+
+        try:
+
+            add_on = AddOn(
+                add_on_code='mock_add_on',
+                name='Mock Add-On',
+                unit_amount_in_cents=Money(100),
+            )
+            with self.mock_request('subscribe-add-on/add-on-created.xml'):
+                plan.create_add_on(add_on)
+
+            second_add_on = AddOn(
+                add_on_code='second_add_on',
+                name='Second Add-On',
+                unit_amount_in_cents=Money(50),
+            )
+            with self.mock_request('subscribe-add-on/second-add-on-created.xml'):
+                plan.create_add_on(second_add_on)
+
+            account_code='sad-on-%s' % self.test_id
+            sub = Subscription(
+                plan_code='basicplan',
+                subscription_add_ons=[
+                    SubscriptionAddOn(
+                        add_on_code='mock_add_on',
+                    ),
+                    SubscriptionAddOn(
+                        add_on_code='second_add_on',
+                    ),
+                ],
+                currency='USD',
+                account=Account(
+                    account_code=account_code,
+                    billing_info=BillingInfo(
+                        first_name='Verena',
+                        last_name='Example',
+                        number='4111 1111 1111 1111',
+                        address1='123 Main St',
+                        city='San Francisco',
+                        state='CA',
+                        zip='94105',
+                        country='US',
+                        verification_value='7777',
+                        year='2015',
+                        month='12',
+                    ),
+                ),
+            )
+            with self.mock_request('subscribe-add-on/subscribed.xml'):
+                sub.save()
+
+            # Subscription amounts are in one real currency, so they aren't Money instances.
+            sub_amount = sub.unit_amount_in_cents
+            self.assertTrue(not isinstance(sub_amount, Money))
+            self.assertEqual(sub_amount, 1000)
+
+            # Test that the add-ons' amounts aren't real Money instances either.
+            add_on_1, add_on_2 = sub.subscription_add_ons
+            self.assertIsInstance(add_on_1, SubscriptionAddOn)
+            amount_1 = add_on_1.unit_amount_in_cents
+            self.assertTrue(not isinstance(amount_1, Money))
+            self.assertEqual(amount_1, 100)
+
+            with self.mock_request('subscribe-add-on/account-exists.xml'):
+                account = Account.get(account_code)
+            with self.mock_request('subscribe-add-on/account-deleted.xml'):
+                account.delete()
+
+        finally:
+            with self.mock_request('subscribe-add-on/plan-deleted.xml'):
+                plan.delete()
+
+    def test_subscription_notes(self):
+        with self.mock_request('subscription/show.xml'):
+            sub = Subscription.get('123456789012345678901234567890ab')
+
+        with self.mock_request('subscription/subscribe-notes.xml'):
+            sub.terms_and_conditions = "Some terms and conditions"
+            sub.customer_notes = "Some customer notes"
+            sub.vat_reverse_charge_notes = "Some vat reverse charge notes"
+            sub.gateway_code = 'A new gateway code'
+            sub.update_notes()
+
+        self.assertEquals(sub.gateway_code, 'A new gateway code')
+
+    def test_subscription_custom_fields(self):
+        account_code = 'subscribe-%s-2' % self.test_id
+        sub = Subscription(
+            plan_code='basicplan',
+            currency='USD',
+            account=Account(
+                account_code=account_code,
+                billing_info=BillingInfo(
+                    first_name='Verena',
+                    last_name='Example',
+                    address1='123 Main St',
+                    city=six.u('San Jos\xe9'),
+                    state='CA',
+                    zip='94105',
+                    country='US',
+                    type='credit_card',
+                    number='4111 1111 1111 1111',
+                    verification_value='7777',
+                    year='2015',
+                    month='12',
+                ),
+                custom_fields=[CustomField(name='my_account_field', value='here is the account value you seek')],
+            ),
+            custom_fields=[CustomField(name='my_sub_field', value='definitely sub value')],
+        )
+
+        with self.mock_request('subscription/subscribe-custom-fields.xml'):
+            sub.save()
+
+        self.assertTrue(sub._url)
+        self.assertEquals(sub.custom_fields[0].name, 'my_sub_field')
+        self.assertEquals(sub.custom_fields[0].value, 'definitely sub value')
+
+        cfs = sub.custom_fields
+        cfs[0].value = 'A new sub value'
+        sub.custom_fields = cfs
+
+        with self.mock_request('subscription/subscribe-custom-fields-notes.xml'):
+            sub.update_notes()
+
+        self.assertEquals(sub.custom_fields[0].value, 'A new sub value')
+
+    def test_account_notes(self):
+        account1 = Account(account_code='note%s' % self.test_id)
+        account2 = Account(account_code='note%s' % self.test_id)
+
+        with self.mock_request('account-notes/account1-created.xml'):
+            account1.save()
+        with self.mock_request('account-notes/account2-created.xml'):
+            account2.save()
+        try:
+            with self.mock_request('account-notes/account1-note-list.xml'):
+                notes1 = account1.notes()
+            with self.mock_request('account-notes/account2-note-list.xml'):
+                notes2 = account2.notes()
+
+            # assert accounts don't share notes
+            self.assertNotEqual(notes1, notes2)
+
+            # assert contains the proper notes
+            self.assertEqual(notes1[0].message, "Python Madness")
+            self.assertEqual(notes1[1].message, "Some message")
+            self.assertEqual(notes2[0].message, "Foo Bar")
+            self.assertEqual(notes2[1].message, "Baz Boo Bop")
+
+        finally:
+            with self.mock_request('account-notes/account1-deleted.xml'):
+                account1.delete()
+            with self.mock_request('account-notes/account2-deleted.xml'):
+                account2.delete()
+
+    def test_transaction(self):
+        logging.basicConfig(level=logging.DEBUG)  # make sure it's init'ed
+        logger = logging.getLogger('recurly.http.request')
+        logger.setLevel(logging.DEBUG)
+
+        account_code = 'transaction%s' % self.test_id
+
+        log_content = StringIO()
+        log_handler = logging.StreamHandler(log_content)
+        logger.addHandler(log_handler)
+
+        transaction = Transaction(
+            amount_in_cents=1000,
+            currency='USD',
+            account=Account(
+                account_code=account_code,
+                billing_info=BillingInfo(
+                    first_name='Verena',
+                    last_name='Example',
+                    number='4111-1111-1111-1111',
+                    year='2014',
+                    address1='123 Main St',
+                    city='San Francisco',
+                    state='CA',
+                    zip='94105',
+                    country='US',
+                    month='7',
+                    verification_value='7777',
+                ),
+            )
+        )
+        with self.mock_request('transaction/created.xml'):
+            transaction.save()
+
+        fraud_info = transaction.fraud
+        self.assertEquals(fraud_info.score, 88)
+        self.assertEquals(fraud_info.decision, 'DECLINED')
+
+        logger.removeHandler(log_handler)
+
+        try:
+            transaction.get_refund_transaction()
+        except ValueError:
+            pass
+        else:
+            self.fail("Transaction with no refund transaction did not raise a ValueError from get_refund_transaction()")
+
+        with self.mock_request('transaction/account-exists.xml'):
+            account = Account.get(account_code)
+
+        try:
+            log_content = log_content.getvalue()
+            self.assertTrue('<transaction' in log_content)
+            self.assertTrue('<billing_info' in log_content)
+            # See if we redacted our sensitive fields properly.
+            self.assertTrue('4111' not in log_content)
+            self.assertTrue('7777' not in log_content)
+
+            with self.mock_request('transaction/refunded.xml'):
+                refunded_transaction = transaction.refund()
+
+            transaction_2 = Transaction(
+                amount_in_cents=1000,
+                currency='USD',
+                account=Account(account_code=account_code),
+            )
+            with self.mock_request('transaction/created-again.xml'):
+                transaction_2.save()
+            self.assertNotEqual(transaction_2.uuid, transaction.uuid)
+            self.assertTrue(transaction_2.refundable)
+
+            with self.mock_request('transaction/partial-refunded.xml'):
+                refunded_transaction = transaction_2.refund(amount_in_cents=700)
+            self.assertTrue(refunded_transaction is transaction_2)
+            self.assertTrue(hasattr(transaction_2, 'get_refund_transaction'))
+            with self.mock_request('transaction/partial-refunded-transaction.xml'):
+                refund_transaction = transaction_2.get_refund_transaction()
+            self.assertTrue(isinstance(refund_transaction, Transaction))
+            self.assertTrue(not refund_transaction.refundable)
+            self.assertNotEqual(refund_transaction.uuid, transaction_2.uuid)
+
+        finally:
+            with self.mock_request('transaction/account-deleted.xml'):
+                account.delete()
+
+    def failed_transaction(self):
+        transaction = Transaction(
+            amount_in_cents=1000,
+            currency='USD',
+            account=Account(),
+        )
+
+        with self.mock_request('transaction/declined-stransaction.xml'):
+            try:
+                transaction.save()
+            except ValidationError as _error:
+                error = _error
+            else:
+                self.fail("Posting a transaction without an account code did not raise a ValidationError")
+
+        self.assertEqual(transaction.error_code, 'insufficient_funds')
+        self.assertEqual(transaction.error_category, 'soft')
+        self.assertEqual(transaction.customer_message, 'The transaction was declined due to insufficient funds in your account. Please use a different card or contact your bank.')
+        self.assertEqual(transaction.merchant_message, 'The card has insufficient funds to cover the cost of the transaction.')
+        self.assertEqual(transaction.gateway_error_code, '123')
+
+
+    def test_transaction_with_balance(self):
+        transaction = Transaction(
+            amount_in_cents=1000,
+            currency='USD',
+            account=Account(),
+        )
+        error = None
+        with self.mock_request('transaction-balance/transaction-no-account.xml'):
+            try:
+                transaction.save()
+            except ValidationError as _error:
+                error = _error
+            else:
+                self.fail("Posting a transaction without an account code did not raise a ValidationError")
+        # Make sure there really were errors.
+        self.assertTrue(len(error.errors) > 0)
+
+        account_code = 'transbalance%s' % self.test_id
+        account = Account(account_code=account_code)
+        with self.mock_request('transaction-balance/account-created.xml'):
+            account.save()
+
+        try:
+            # Try to charge without billing info, should break.
+            transaction = Transaction(
+                amount_in_cents=1000,
+                currency='USD',
+                account=account,
+            )
+            error = None
+            with self.mock_request('transaction-balance/transaction-no-billing-fails.xml'):
+                try:
+                    transaction.save()
+                except ValidationError as _error:
+                    error = _error
+                else:
+                    self.fail("Posting a transaction without billing info did not raise a ValidationError")
+            # Make sure there really were errors.
+            self.assertTrue(len(error.errors) > 0)
+
+            binfo = BillingInfo(
+                first_name='Verena',
+                last_name='Example',
+                address1='123 Main St',
+                city=six.u('San Jos\xe9'),
+                state='CA',
+                zip='94105',
+                country='US',
+                type='credit_card',
+                number='4111 1111 1111 1111',
+                verification_value='7777',
+                year='2015',
+                month='12',
+            )
+            with self.mock_request('transaction-balance/set-billing-info.xml'):
+                account.update_billing_info(binfo)
+
+            # Try to charge now, should be okay.
+            transaction = Transaction(
+                amount_in_cents=1000,
+                currency='USD',
+                account=account,
+            )
+            with self.mock_request('transaction-balance/transacted.xml'):
+                transaction.save()
+
+            # Give the account a credit.
+            credit = Adjustment(unit_amount_in_cents=-2000, currency='USD', description='transaction test credit')
+            with self.mock_request('transaction-balance/credited.xml'):
+                # TODO: maybe this should be adjust()?
+                account.charge(credit)
+
+            # Try to charge less than the account balance, which should fail (not a CC transaction).
+            transaction = Transaction(
+                amount_in_cents=500,
+                currency='USD',
+                account=account,
+            )
+            with self.mock_request('transaction-balance/transacted-2.xml'):
+                transaction.save()
+            # The transaction doesn't actually save.
+            self.assertTrue(transaction._url is None)
+
+            # Try to charge more than the account balance, which should work.
+            transaction = Transaction(
+                amount_in_cents=3000,
+                currency='USD',
+                account=account,
+            )
+            with self.mock_request('transaction-balance/transacted-3.xml'):
+                transaction.save()
+            # This transaction should be recorded.
+            self.assertTrue(transaction._url is not None)
+
+        finally:
+            with self.mock_request('transaction-balance/account-deleted.xml'):
+                account.delete()
+
+    def _build_gift_card(self):
+        account_code = 'e0004e3c-216c-4254-8767-9be605cd0b03'
+        account = recurly.Account(account_code=account_code)
+        account.email = 'verena@example.com'
+        account.first_name = 'Verena'
+        account.last_name = 'Example'
+
+        billing_info = BillingInfo()
+        billing_info.first_name = 'Verena'
+        billing_info.last_name = 'Example'
+        billing_info.number = '4111-1111-1111-1111'
+        billing_info.verification_value = '123'
+        billing_info.month = 11
+        billing_info.year = 2019
+        billing_info.country = 'US'
+
+        address = Address()
+        address.address1 = '400 Alabama St'
+        address.zip = '94110'
+        address.city = 'San Francisco'
+        address.state = 'CA'
+        address.country = 'US'
+
+        delivery = Delivery()
+        delivery.method = 'email'
+        delivery.email_address = 'john@email.com'
+        delivery.first_name = 'John'
+        delivery.last_name = 'Smith'
+
+        gift_card = GiftCard()
+        gift_card.product_code = 'test_gift_card'
+        gift_card.currency = 'USD'
+        gift_card.unit_amount_in_cents = 2000
+
+        delivery.address = address
+        account.billing_info = billing_info
+
+        gift_card.delivery = delivery
+        gift_card.gifter_account = account
+        return gift_card
+
+    def test_gift_cards_purchase(self):
+        gift_card = self._build_gift_card()
+
+        self.assertFalse('_url' in gift_card.attributes)
+
+        with self.mock_request('gift_cards/created.xml'):
+            gift_card.save()
+
+        self.assertTrue(gift_card._url is not None)
+        self.assertTrue(gift_card.delivery is not None)
+        self.assertTrue(gift_card.canceled_at is None)
+
+    def test_gift_cards_preview(self):
+        gift_card = self._build_gift_card()
+
+        self.assertFalse('_url' in gift_card.attributes)
+
+        with self.mock_request('gift_cards/preview.xml'):
+            gift_card.preview()
+
+        self.assertTrue(gift_card.id is None)
+        self.assertFalse('_url' in gift_card.attributes)
+
+    def test_gift_cards_redeem(self):
+        gift_card = GiftCard(redemption_code='9FC359369CD3892E')
+
+        with self.mock_request('gift_cards/redeem.xml'):
+            gift_card.redeem('e0004e3c-216c-4254-8767-9be605cd0b03')
+
+        self.assertTrue(gift_card.redeemed_at is not None)
+
+    def test_gift_cards_redeem_with_url(self):
+        gift_card = GiftCard(redemption_code='9FC359369CD3892E')
+        gift_card._url = 'https://api.recurly.com/v2/gift_cards/9FC359369CD3892E'
+
+        with self.mock_request('gift_cards/redeem.xml'):
+            gift_card.redeem('e0004e3c-216c-4254-8767-9be605cd0b03')
+
+        self.assertTrue(gift_card.redeemed_at is not None)
+
+    def test_export_date(self):
+        with self.mock_request('export-date/export-date.xml'):
+            export_dates = ExportDate.all()
+
+        self.assertEqual(len(export_dates), 1)
+        self.assertEqual(export_dates[0].date, "2019-05-09")
+
+    def test_export_date_files(self):
+        export_date = ExportDate()
+
+        with self.mock_request('export-date-files/export-date-files-list.xml'):
+            export_date_files = export_date.files("2019-05-09")
+
+        self.assertEqual(len(export_date_files), 1)
+        self.assertEqual(export_date_files[0].name, "churned_subscriptions_v2_expires.csv.gz")
+
+    def test_export_date_files_download_information(self):
+        export_date = ExportDate()
+
+        with self.mock_request('export-date-files/export-date-files-list.xml'):
+            export_date_files = export_date.files("2019-05-09")
+
+        with self.mock_request('export-date-files/export-date-file-download-information.xml'):
+            export_date_file_download_information = export_date_files[0].download_information()
+
+        self.assertEqual(
+            export_date_file_download_information.expires_at.strftime("%Y-%m-%d %H:%M:%S"), "2019-05-09 14:00:00"
+        )
+        self.assertEqual(export_date_file_download_information.download_url, "https://api.recurly.com/download")
+
+
+if __name__ == '__main__':
+    import unittest
+    unittest.main()
