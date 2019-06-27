@@ -1,0 +1,8 @@
+from datasets.dssm.dssm_dataset import DSSMSameFileDataset, DSSMSeparateFileDataset
+from datasets.matchpyramid.match_pyramid_dataset import MatchPyramidSameFileDataset, MatchPyramidSeparateFilesDataset
+from datasets.nlp.xy_dataset import XYSameFileDataset, XYSeparateFileDataset
+from datasets.nlp.xyz_dataset import XYZSameFileDataset, XYZSeparateFileDataset
+from datasets.nmt.nmt_dataset import NMTSameFileDataset, NMTSeparateFileDataset
+from datasets.seq2seq.seq2seq_dataset import Seq2SeqSameFileDataset, Seq2SeqSeparateFileDataset
+
+name = 'naivenmt_datasets'
