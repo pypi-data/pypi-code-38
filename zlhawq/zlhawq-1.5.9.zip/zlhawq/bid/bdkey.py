@@ -1,0 +1,164 @@
+import hashlib
+from lmf.dbv2 import db_command ,db_query
+
+import os 
+import pandas as pd 
+
+def cut(a,b):
+    i=5
+    tmp=a[:i]
+    while tmp!=a:
+        if not b.startswith(tmp):
+            break
+        i+=1
+        tmp=a[:i]
+    if not max(i/len(a),i/len(b))>0.6:return None
+    if tmp==a and b.startswith(tmp):target=tmp 
+    else:
+        target=tmp[:-1]
+    return target
+
+
+def count_str(word,trr):
+    k=0 
+    for w in trr:
+        if word in w:k+=1
+    return k 
+def get_bdname(word,arr,hx=None):
+    if hx is not None:
+        for w in hx:
+            if w in word :return w
+    target=word
+    j=1
+    ptmp=None
+    trr=arr[ max(arr[arr==word].index[0]-10,0) :arr[arr==word].index[0]+10]
+
+    data=[]
+    for w in trr :
+
+        tmp=cut(target,w)
+        if  tmp is  None:continue
+
+        k=count_str(tmp,trr)
+
+        if k!=1 and k<=5 and tmp!=word:data.append((tmp,k))
+
+
+    data.sort(key=lambda x:x[1])
+    if data==[]:return None 
+    target=data[0][0]
+    return target
+
+def get_bdlist(arr,cdc=None,hx=None):
+    data=[]
+    if cdc is not None:trr=cdc 
+    else:trr=arr
+    for w in trr:
+        target=get_bdname(w,arr,hx)
+        if target is not None:data.append(target)
+    data=list(set(data))
+    return data
+
+######上面是算法
+
+
+
+def md5hex(s):
+    m=hashlib.md5(s.encode())
+
+    x1=m.hexdigest()
+    return x1 
+
+
+def est_func():
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+    sql="""
+create or replace function  bid.md5hex(name_quyu text) returns text 
+
+as $$
+
+import hashlib 
+if name_quyu is None:return None
+m=hashlib.md5(name_quyu.encode())
+
+x1=m.hexdigest()
+return x1 
+
+
+
+$$ language plpython3;
+    """
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+
+    db_command(sql,dbtype="postgresql",conp=conp)
+
+
+def est_t_bd():
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+    user,password,ip,db,schema=conp
+    sql="""
+    create table %s.t_bd (
+    bd_key  serial,
+    bd_guid text not null ,
+    bd_name text not null ,
+    quyu text  not null )
+
+    partition by list(quyu)
+    (partition anhui_anqing values('anhui_anqing'),
+    partition anhui_bengbu values('anhui_bengbu')
+    )
+
+    """%schema 
+    db_command(sql,dbtype='postgresql',conp=conp)
+
+#为 gg表新增\删除分区
+def add_partition_t_bd(quyu):
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+    user,password,ip,db,schema=conp
+    sql="alter table %s.t_bd add partition %s values('%s')"%(schema,quyu,quyu)
+    db_command(sql,dbtype='postgresql',conp=conp)
+
+def drop_partition_t_bd(quyu):
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+    user,password,ip,db,schema=conp
+    sql="alter table %s.t_bd drop partition for('%s')"%(schema,quyu)
+    db_command(sql,dbtype='postgresql',conp=conp)
+
+
+
+####爬虫的标段
+def out_t_bd_pc_all(quyu):
+    path1=os.path.join('/data/lmf',"t_bd_cdc_%s.csv"%quyu)
+    print(path1)
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+
+
+    sql="select gg_name from v3.t_gg_1_prt_%s order by gg_name"%quyu
+
+    df=db_query(sql,dbtype="postgresql",conp=conp)
+
+    arr=df['gg_name']
+    data=get_bdlist(arr)
+    df=pd.DataFrame({"bd_name":data})
+    df['quyu']=quyu 
+    df['bd_guid']=df['bd_name'].map(lambda x:md5hex(x+quyu))
+    print("输出df到 csv")
+    df.to_csv(path1,index=False1,chunksize=5000,sep='\001',quotechar='\002') 
+
+
+
+def update_t_bd_pc(quyu):
+    conp=['gpadmin','since2015','192.168.4.179','base_db','bid']
+    user,password,ip,db,schema=conp
+
+    sql="""
+    insert into %s.t_bd_1_prt_%s(bd_guid,bd_name,quyu)
+    SELECT 
+    distinct on(bd_guid)
+    bd_guid,bd_name,quyu
+
+     FROM cdc.t_bd_cdc_%s a where   not exists (select 1 from %s.t_bd_1_prt_%s as b where   a.bd_guid=b.bd_guid)  
+    
+    """%(schema,quyu,quyu,schema,quyu)
+
+    db_command(sql,dbtype='postgresql',conp=conp)
