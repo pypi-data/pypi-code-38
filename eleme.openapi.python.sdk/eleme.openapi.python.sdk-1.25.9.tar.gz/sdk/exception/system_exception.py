@@ -1,0 +1,3 @@
+
+class SystemException(Exception):pass
+    

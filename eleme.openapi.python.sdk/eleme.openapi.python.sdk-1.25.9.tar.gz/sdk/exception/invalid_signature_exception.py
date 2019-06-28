@@ -1,0 +1,3 @@
+
+class InvalidSignatureException(Exception):pass
+    
