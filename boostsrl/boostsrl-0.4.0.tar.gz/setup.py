@@ -1,0 +1,51 @@
+"""
+Setup file for boostsrl
+
+Refer to https://github.com/starling-lab/boostsrl-python-package
+"""
+
+from setuptools import setup
+from setuptools import find_packages
+from codecs import open
+from os import path
+
+# Get __version__ from _meta.py
+with open(path.join("boostsrl", "_meta.py")) as f:
+    exec(f.read())
+
+_here = path.abspath(path.dirname(__file__))
+with open(path.join(_here, "README.rst"), encoding="utf-8") as f:
+    LONG_DESCRIPTION = f.read()
+
+setup(
+    name="boostsrl",
+    packages=find_packages(exclude=["tests"]),
+    package_dir={"boostsrl": "boostsrl/"},
+    author="Alexander L. Hayes (hayesall)",
+    author_email="alexander@batflyer.net",
+    version=__version__,
+    description="Python wrappers for using BoostSRL jar files.",
+    long_description=LONG_DESCRIPTION,
+    include_package_data=True,
+    package_data={"boostsrl": ["*.jar"]},
+    url="https://starling.utdallas.edu/software/boostsrl-python-wrappers/",
+    download_url="https://github.com/starling-lab/boostsrl-python-package",
+    license="GPL-3.0",
+    zip_safe=False,
+    classifiers=[
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Education",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Operating System :: POSIX :: Linux",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    ],
+    keywords="machine-learning-algorithms machine-learning statistical-learning pattern-classification artificial-intelligence",
+    install_requires=["graphviz"],
+    extras_require={
+        "tests": ["coverage"],
+        "docs": ["sphinx", "starling_theme", "sphinx_gallery"],
+    },
+)
