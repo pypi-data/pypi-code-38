@@ -1,0 +1,2 @@
+class IllegalStreamOperationException(Exception):
+    pass
