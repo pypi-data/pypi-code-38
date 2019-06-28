@@ -1,0 +1,1 @@
+# Functions/Classes to prevent unreasonable augmentations
