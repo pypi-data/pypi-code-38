@@ -1,0 +1,1 @@
+API_URL = 'https://www.easports.com/iframe/fifa17proclubs/api/platforms'
