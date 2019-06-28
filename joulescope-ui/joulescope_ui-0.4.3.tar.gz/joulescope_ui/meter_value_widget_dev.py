@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+
+# Form implementation generated from reading ui file 'd:\repos\Jetperch\pyjoulescope_ui\joulescope_ui\meter_value_widget_dev.ui',
+# licensing of 'd:\repos\Jetperch\pyjoulescope_ui\joulescope_ui\meter_value_widget_dev.ui' applies.
+#
+# Created: Fri Jun 28 13:34:09 2019
+#      by: pyside2-uic  running on PySide2 5.12.0
+#
+# WARNING! All changes made in this file will be lost!
+
+from PySide2 import QtCore, QtGui, QtWidgets
+
+class Ui_Form(object):
+    def setupUi(self, Form):
+        Form.setObjectName("Form")
+        Form.resize(806, 127)
+        self.horizontalLayout = QtWidgets.QHBoxLayout(Form)
+        self.horizontalLayout.setSpacing(0)
+        self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
+        self.horizontalLayout.setObjectName("horizontalLayout")
+        self.valueLabel = QtWidgets.QLabel(Form)
+        self.valueLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; font-size: 48pt; }")
+        self.valueLabel.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
+        self.valueLabel.setObjectName("valueLabel")
+        self.horizontalLayout.addWidget(self.valueLabel)
+        self.unitLabel = QtWidgets.QLabel(Form)
+        self.unitLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; font-size: 48pt; }")
+        self.unitLabel.setObjectName("unitLabel")
+        self.horizontalLayout.addWidget(self.unitLabel)
+        self.frame = QtWidgets.QFrame(Form)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.frame.sizePolicy().hasHeightForWidth())
+        self.frame.setSizePolicy(sizePolicy)
+        self.frame.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.frame.setFrameShadow(QtWidgets.QFrame.Plain)
+        self.frame.setLineWidth(0)
+        self.frame.setObjectName("frame")
+        self.gridLayout = QtWidgets.QGridLayout(self.frame)
+        self.gridLayout.setSpacing(0)
+        self.gridLayout.setContentsMargins(0, 0, 0, 0)
+        self.gridLayout.setObjectName("gridLayout")
+        self.stdLabel = QtWidgets.QLabel(self.frame)
+        self.stdLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.stdLabel.setLineWidth(0)
+        self.stdLabel.setObjectName("stdLabel")
+        self.gridLayout.addWidget(self.stdLabel, 0, 0, 1, 1)
+        self.stdName = QtWidgets.QLabel(self.frame)
+        self.stdName.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.stdName.setLineWidth(0)
+        self.stdName.setObjectName("stdName")
+        self.gridLayout.addWidget(self.stdName, 0, 1, 1, 1)
+        self.minLabel = QtWidgets.QLabel(self.frame)
+        self.minLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.minLabel.setLineWidth(0)
+        self.minLabel.setObjectName("minLabel")
+        self.gridLayout.addWidget(self.minLabel, 1, 0, 1, 1)
+        self.minName = QtWidgets.QLabel(self.frame)
+        self.minName.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.minName.setLineWidth(0)
+        self.minName.setObjectName("minName")
+        self.gridLayout.addWidget(self.minName, 1, 1, 1, 1)
+        self.maxLabel = QtWidgets.QLabel(self.frame)
+        self.maxLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.maxLabel.setLineWidth(0)
+        self.maxLabel.setObjectName("maxLabel")
+        self.gridLayout.addWidget(self.maxLabel, 2, 0, 1, 1)
+        self.maxName = QtWidgets.QLabel(self.frame)
+        self.maxName.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.maxName.setLineWidth(0)
+        self.maxName.setObjectName("maxName")
+        self.gridLayout.addWidget(self.maxName, 2, 1, 1, 1)
+        self.p2pLabel = QtWidgets.QLabel(self.frame)
+        self.p2pLabel.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.p2pLabel.setLineWidth(0)
+        self.p2pLabel.setObjectName("p2pLabel")
+        self.gridLayout.addWidget(self.p2pLabel, 3, 0, 1, 1)
+        self.p2pName = QtWidgets.QLabel(self.frame)
+        self.p2pName.setStyleSheet("QLabel { background-color : black; color : green; font-weight: bold; }")
+        self.p2pName.setLineWidth(0)
+        self.p2pName.setObjectName("p2pName")
+        self.gridLayout.addWidget(self.p2pName, 3, 1, 1, 1)
+        self.horizontalLayout.addWidget(self.frame)
+
+        self.retranslateUi(Form)
+        QtCore.QMetaObject.connectSlotsByName(Form)
+
+    def retranslateUi(self, Form):
+        Form.setWindowTitle(QtWidgets.QApplication.translate("Form", "Form", None, -1))
+        self.valueLabel.setText(QtWidgets.QApplication.translate("Form", "0.000", None, -1))
+        self.unitLabel.setText(QtWidgets.QApplication.translate("Form", " mA ", None, -1))
+        self.stdLabel.setText(QtWidgets.QApplication.translate("Form", "0.000", None, -1))
+        self.stdName.setText(QtWidgets.QApplication.translate("Form", " µ ", None, -1))
+        self.minLabel.setText(QtWidgets.QApplication.translate("Form", "0.000", None, -1))
+        self.minName.setText(QtWidgets.QApplication.translate("Form", " min ", None, -1))
+        self.maxLabel.setText(QtWidgets.QApplication.translate("Form", "0.000", None, -1))
+        self.maxName.setText(QtWidgets.QApplication.translate("Form", " max ", None, -1))
+        self.p2pLabel.setText(QtWidgets.QApplication.translate("Form", "0.000", None, -1))
+        self.p2pName.setText(QtWidgets.QApplication.translate("Form", " p2p ", None, -1))
+
+from . import joulescope_rc
