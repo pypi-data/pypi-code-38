@@ -1,0 +1,4 @@
+from .GetPowerSwitchStatusCommand import GetPowerSwitchStatusCommand
+from .SwitchPowerCommand import SwitchPowerCommand
+from .SwitchPowerOffCommand import SwitchPowerOffCommand
+from .SwitchPowerOnCommand import SwitchPowerOnCommand
