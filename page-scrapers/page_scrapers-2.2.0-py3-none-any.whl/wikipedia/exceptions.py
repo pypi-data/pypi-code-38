@@ -1,0 +1,2 @@
+class StringNotProvided(Exception):
+	pass
