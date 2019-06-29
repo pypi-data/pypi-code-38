@@ -1,0 +1,1 @@
+default_app_config = 'django_szuprefix_saas.company.apps.Config'
